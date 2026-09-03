@@ -2,6 +2,7 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.auth import router as auth_router
+from app.api.dead_letters import router as dead_letters_router
 from app.api.jobs import router as jobs_router
 from app.api.system import router as system_router
 from app.api.workflows import router as workflows_router
@@ -27,6 +28,7 @@ app.add_middleware(
 app.include_router(auth_router, prefix="/auth", tags=["Auth"])
 app.include_router(workflows_router, prefix="/workflows", tags=["Workflows"])
 app.include_router(jobs_router)  # Provides /jobs and /workflows/{id}/jobs
+app.include_router(dead_letters_router, prefix="/dead-letters", tags=["Dead Letters"])
 app.include_router(system_router, prefix="/system", tags=["System (Temporary)"])
 
 

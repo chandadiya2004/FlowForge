@@ -74,7 +74,7 @@ def create_job_for_workflow(
             status=TaskStatus.PENDING,
             input_data=task_config,
             retry_count=0,
-            max_retries=3,
+            max_retries=int(task_def.get("max_retries", 3)),
         )
         tasks_to_create.append(task_record)
 

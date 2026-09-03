@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     JWT_SECRET: str = "flowforge_default_secret_key_change_in_production"
     JWT_EXPIRE_MINUTES: int = 60
     CORS_ORIGINS: Union[List[str], str] = ["http://localhost:3000"]
+    RETRY_BASE_DELAY_SECONDS: float = 10.0
+    RETRY_MAX_DELAY_SECONDS: float = 300.0
 
     @field_validator("DATABASE_URL", mode="before")
     @classmethod

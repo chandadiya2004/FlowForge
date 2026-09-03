@@ -8,6 +8,7 @@ class TaskDefinition(BaseModel):
     name: str = Field(..., min_length=1, description="Task step name")
     type: str = Field(..., min_length=1, description="Task step type")
     config: dict[str, Any] = Field(default_factory=dict, description="Task step configuration dictionary")
+    max_retries: int = Field(default=3, ge=0, description="Max retries before dead-lettering")
 
 
 class WorkflowCreate(BaseModel):

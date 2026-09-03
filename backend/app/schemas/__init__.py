@@ -6,11 +6,13 @@ from app.schemas.auth import (
     UserLogin,
     UserRead,
 )
+from app.schemas.dead_letter import DeadLetterRead
 from app.schemas.job import JobDetailRead, JobRead
 from app.schemas.task import TaskRead
 from app.schemas.workflow import TaskDefinition, WorkflowCreate, WorkflowRead, WorkflowUpdate
 
 __all__ = [
+    "DeadLetterRead",
     "JobDetailRead",
     "JobRead",
     "RefreshTokenRequest",
