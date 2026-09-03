@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text, Uuid
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.sqlite import JSON as SQLiteJSON
 from sqlalchemy.orm import relationship
@@ -14,24 +14,24 @@ class DeadLetterTask(Base):
     __tablename__ = "dead_letter_tasks"
 
     id = Column(
-        String(36),
+        Uuid(as_uuid=True),
         primary_key=True,
-        default=lambda: str(uuid.uuid4()),
+        default=uuid.uuid4,
     )
     task_id = Column(
-        String(36),
+        Uuid(as_uuid=True),
         ForeignKey("tasks.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
     job_id = Column(
-        String(36),
+        Uuid(as_uuid=True),
         ForeignKey("jobs.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
     workflow_id = Column(
-        String(36),
+        Uuid(as_uuid=True),
         ForeignKey("workflows.id", ondelete="CASCADE"),
         nullable=False,
         index=True,

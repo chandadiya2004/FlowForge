@@ -92,10 +92,10 @@ def execute_task(task_id: str) -> dict[str, str]:
 
                 # Create DeadLetterTask record
                 dead_letter = DeadLetterTask(
-                    id=str(uuid.uuid4()),
-                    task_id=str(task.id),
-                    job_id=str(job.id) if job else str(task.job_id),
-                    workflow_id=str(job.workflow_id) if job else "",
+                    id=uuid.uuid4(),
+                    task_id=task.id,
+                    job_id=task.job_id,
+                    workflow_id=job.workflow_id if job else task.job.workflow_id,
                     task_type=task.type,
                     input_data=task.input_data,
                     error_message=str(exc),

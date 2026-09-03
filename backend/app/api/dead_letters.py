@@ -30,7 +30,7 @@ def list_dead_letters(
     """Retrieves all dead-letter tasks. Filterable by workflow_id."""
     query = db.query(DeadLetterTask)
     if workflow_id is not None:
-        query = query.filter(DeadLetterTask.workflow_id == str(workflow_id))
+        query = query.filter(DeadLetterTask.workflow_id == workflow_id)
     return query.order_by(DeadLetterTask.failed_at.desc()).all()
 
 
@@ -45,8 +45,8 @@ def get_dead_letter(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role("admin")),
 ) -> DeadLetterTask:
-    """Retrieves full details of a single dead-letter record."""
-    dl = db.query(DeadLetterTask).filter(DeadLetterTask.id == str(dead_letter_id)).first()
+    """Retrieves single dead-letter record."""
+    dl = db.query(DeadLetterTask).filter(DeadLetterTask.id == dead_letter_id).first()
     if not dl:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -59,7 +59,7 @@ def get_dead_letter(
     "/{dead_letter_id}/requeue",
     response_model=DeadLetterRead,
     status_code=status.HTTP_200_OK,
-    summary="Requeue a dead-lettered task (Admin only)",
+    summary="Requeue a dead-letter task (Admin only)",
     tags=["Dead Letters"],
 )
 def requeue_dead_letter(
@@ -68,14 +68,14 @@ def requeue_dead_letter(
     current_user: User = Depends(require_role("admin")),
 ) -> DeadLetterTask:
     """Resets the original task state, marks requeued_at on the dead-letter record, and dispatches execution fresh."""
-    dl = db.query(DeadLetterTask).filter(DeadLetterTask.id == str(dead_letter_id)).first()
+    dl = db.query(DeadLetterTask).filter(DeadLetterTask.id == dead_letter_id).first()
     if not dl:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Dead-letter record not found",
         )
 
-    task = db.query(Task).filter(Task.id == uuid.UUID(dl.task_id)).first()
+    task = db.query(Task).filter(Task.id == dl.task_id).first()
     if not task:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

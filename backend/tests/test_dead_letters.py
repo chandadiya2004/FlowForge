@@ -67,22 +67,22 @@ def test_dead_letter_list_and_filter():
     t2 = Task(id=uuid.uuid4(), job_id=job2.id, name="T2", type="http_call", sequence=1, status=TaskStatus.FAILED)
 
     dl1 = DeadLetterTask(
-        id=str(uuid.uuid4()),
-        task_id=str(t1.id),
-        job_id=str(job1.id),
-        workflow_id=str(wf1.id),
+        id=uuid.uuid4(),
+        task_id=t1.id,
+        job_id=job1.id,
+        workflow_id=wf1.id,
         task_type="http_call",
         error_message="Connection refused",
         retry_count=3,
         failed_at=datetime.now(timezone.utc),
     )
     dl2 = DeadLetterTask(
-        id=str(uuid.uuid4()),
-        task_id=str(t2.id),
-        job_id=str(job2.id),
-        workflow_id=str(wf2.id),
+        id=uuid.uuid4(),
+        task_id=t2.id,
+        job_id=job2.id,
+        workflow_id=wf2.id,
         task_type="http_call",
-        error_message="Timeout",
+        error_message="Gateway timeout",
         retry_count=3,
         failed_at=datetime.now(timezone.utc),
     )
@@ -123,10 +123,10 @@ def test_dead_letter_requeue():
         error_message="Old error",
     )
     dl = DeadLetterTask(
-        id=str(uuid.uuid4()),
-        task_id=str(t.id),
-        job_id=str(job.id),
-        workflow_id=str(wf.id),
+        id=uuid.uuid4(),
+        task_id=t.id,
+        job_id=job.id,
+        workflow_id=wf.id,
         task_type="http_call",
         error_message="Old error",
         retry_count=3,
@@ -229,7 +229,7 @@ def test_execute_task_retries_then_dead_letters():
     db3 = TestingSessionLocal()
     t_final = db3.query(Task).filter(Task.id == uuid.UUID(task_id)).first()
     j_final = db3.query(Job).filter(Job.id == job_id).first()
-    dl_record = db3.query(DeadLetterTask).filter(DeadLetterTask.task_id == task_id).first()
+    dl_record = db3.query(DeadLetterTask).filter(DeadLetterTask.task_id == uuid.UUID(task_id)).first()
 
     assert t_final.status == TaskStatus.FAILED
     assert t_final.retry_count == 2

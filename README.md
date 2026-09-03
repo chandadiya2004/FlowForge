@@ -12,79 +12,93 @@ FlowForge is a resilient, distributed job-processing platform designed to orches
 - Redis (for Celery broker / results in future milestones)
 - PostgreSQL (for relational data storage in future milestones)
 
-### Backend Quickstart
+## Quickstart & Setup (Docker Compose)
 
-1. Navigate to the `backend/` directory:
-   ```bash
-   cd backend
-   ```
-2. Create and activate a virtual environment:
-   ```bash
-   python -m venv .venv
-   # Windows PowerShell:
-   .venv\Scripts\Activate.ps1
-   # Linux/macOS:
-   source .venv/bin/activate
-   ```
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-4. Start the development server:
-   ```bash
-   uvicorn main:app --reload
-   ```
-5. Verify health endpoint:
-   Open [http://localhost:8000/health](http://localhost:8000/health) or run:
-   ```bash
-   curl http://localhost:8000/health
-   ```
+The entire FlowForge stack (PostgreSQL, Redis, FastAPI Backend, Celery Worker, and Next.js Frontend) can be launched using Docker Compose.
 
-### Frontend Quickstart
+### 1. Configure Environment Variables
+Copy the infrastructure environment template:
+```bash
+cp infrastructure/.env.example infrastructure/.env
+```
+*(On Windows PowerShell: `Copy-Item infrastructure/.env.example infrastructure/.env`)*. Review and update `infrastructure/.env` if you want custom database credentials or secrets.
 
-1. Navigate to the `frontend/` directory:
-   ```bash
-   cd frontend
-   ```
-2. Ensure environment variables are configured in `frontend/.env.local`:
-   ```bash
-   NEXT_PUBLIC_API_URL=http://localhost:8000
-   ```
-3. Install dependencies:
-   ```bash
-   npm install
-   ```
-4. Start the Next.js development server:
-   ```bash
-   npm run dev
-   ```
-5. Open [http://localhost:3000](http://localhost:3000) in your browser.
+### 2. Start the Stack
+Build and launch all services with health checks and automated database migrations:
+```bash
+docker compose -f infrastructure/docker-compose.yml up --build
+```
+Or in detached mode:
+```bash
+docker compose -f infrastructure/docker-compose.yml up --build -d
+```
 
-### Worker Quickstart
+Once running:
+- **Web Dashboard**: [http://localhost:3000](http://localhost:3000)
+- **FastAPI Documentation & Swagger UI**: [http://localhost:8000/docs](http://localhost:8000/docs)
+- **API Health Endpoint**: [http://localhost:8000/health](http://localhost:8000/health)
 
-The worker process connects to Redis for task queuing and shares the database models and configuration directly with `backend/` by including `backend/` in `sys.path` (configured automatically in `worker/celery_app.py` and `worker/db.py`).
+### 3. Monitoring Logs & Debugging
+Inspect real-time logs for any specific service (e.g., the worker or backend):
+```bash
+# View worker logs
+docker compose -f infrastructure/docker-compose.yml logs -f worker
 
-1. Ensure Redis is running:
-   ```bash
-   docker compose -f infrastructure/docker-compose.yml up -d redis
-   ```
-2. Navigate to the `worker/` directory:
-   ```bash
-   cd worker
-   ```
-3. Start the Celery worker listening on all three priority queues (`high,default,low`):
-   ```bash
-   # Windows PowerShell:
-   ..\backend\.venv\Scripts\celery -A celery_app worker -Q high,default,low --loglevel=info -P solo
+# View backend logs
+docker compose -f infrastructure/docker-compose.yml logs -f backend
+```
 
-   # Linux / macOS:
-   source ../backend/.venv/bin/activate
-   celery -A celery_app worker -Q high,default,low --loglevel=info
-   ```
-   *(Note: `-P solo` is required on Windows to avoid OS fork limitations).*
+### 4. Teardown
+To stop all services cleanly:
+```bash
+docker compose -f infrastructure/docker-compose.yml down
+```
+To stop all services and **delete all persistent volumes** (PostgreSQL database and Redis storage) for a completely fresh start:
+```bash
+docker compose -f infrastructure/docker-compose.yml down -v
+```
 
-> [!NOTE]
-> **Production Deployment Note**: For local development, a single worker process monitors `-Q high,default,low` in priority order. In production (Milestone 11), dedicated worker pools are deployed per queue (e.g., separate worker instances for `high`, `default`, and `low` with distinct autoscaling policies and concurrency limits) to ensure critical jobs are never blocked by low-priority workloads.
+---
+
+## Running Services Individually for Debugging
+
+If you prefer to run services manually on your host machine without containerizing every component:
+
+### 1. Infrastructure Services (PostgreSQL & Redis)
+```bash
+docker compose -f infrastructure/docker-compose.yml up -d postgres redis
+```
+
+### 2. Backend
+```bash
+cd backend
+python -m venv .venv
+# Windows:
+.venv\Scripts\Activate.ps1
+# Linux/macOS:
+source .venv/bin/activate
+
+pip install -r requirements.txt
+alembic upgrade head
+uvicorn main:app --reload
+```
+
+### 3. Celery Worker
+```bash
+cd worker
+# Windows (requires -P solo):
+..\backend\.venv\Scripts\celery -A celery_app worker -Q high,default,low --loglevel=info -P solo
+# Linux/macOS:
+source ../backend/.venv/bin/activate
+celery -A celery_app worker -Q high,default,low --loglevel=info
+```
+
+### 4. Frontend
+```bash
+cd frontend
+npm install
+npm run dev
+```
 
 ---
 
@@ -98,5 +112,5 @@ The worker process connects to Redis for task queuing and shares the database mo
 - [x] **Milestone 6**: Error Handling, Retries & Exponential Backoff (Dead-Letter Handling)
 - [x] **Milestone 7**: Priority Queues (High, Default, Low Tiered Routing)
 - [x] **Milestone 8**: Dashboard UI (Next.js App Router, Workflows, Live Job Polling & Dead-Letter Admin)
-- [ ] **Milestone 9**: Full Docker & Infrastructure Orchestration
+- [x] **Milestone 9**: Full Docker & Infrastructure Orchestration (Postgres, Redis, Backend, Worker, Frontend)
 - [ ] **Milestone 10**: CI/CD Pipelines & Automated Production Deployment

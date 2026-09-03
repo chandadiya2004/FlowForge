@@ -1,66 +1,113 @@
-# FlowForge Infrastructure - Docker Compose Setup
-# Milestone 4: Redis enabled for Celery broker & result backend.
-# Full multi-container composition will be finalized in Milestone 9.
+# FlowForge Distributed Job-Processing Platform
+# Unified Multi-Container Architecture (Milestone 9)
 
-version: "3.8"
+name: flowforge
 
 services:
-  # postgres:
-  #   image: postgres:16-alpine
-  #   container_name: flowforge-postgres
-  #   environment:
-  #     POSTGRES_USER: postgres
-  #     POSTGRES_PASSWORD: postgres
-  #     POSTGRES_DB: flowforge
-  #   ports:
-  #     - "5432:5432"
-  #   volumes:
-  #     - postgres_data:/var/lib/postgresql/data
+  postgres:
+    image: postgres:16-alpine
+    container_name: flowforge-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-flowforge}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-flowforge}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - flowforge-network
 
   redis:
     image: redis:7-alpine
     container_name: flowforge-redis
+    restart: unless-stopped
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - flowforge-network
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: flowforge-backend
     restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-flowforge}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - JWT_SECRET=${JWT_SECRET:-flowforge_default_secret_key_change_in_production}
+      - JWT_EXPIRE_MINUTES=${JWT_EXPIRE_MINUTES:-60}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000}
+      - RETRY_BASE_DELAY_SECONDS=${RETRY_BASE_DELAY_SECONDS:-10.0}
+      - RETRY_MAX_DELAY_SECONDS=${RETRY_MAX_DELAY_SECONDS:-300.0}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - flowforge-network
 
-  # backend:
-  #   build:
-  #     context: ../backend
-  #     dockerfile: Dockerfile
-  #   container_name: flowforge-backend
-  #   ports:
-  #     - "8000:8000"
-  #   environment:
-  #     - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/flowforge
-  #     - REDIS_URL=redis://redis:6379/0
-  #   depends_on:
-  #     - postgres
-  #     - redis
+  worker:
+    build:
+      context: ..
+      dockerfile: worker/Dockerfile
+    container_name: flowforge-worker
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-flowforge}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - JWT_SECRET=${JWT_SECRET:-flowforge_default_secret_key_change_in_production}
+      - RETRY_BASE_DELAY_SECONDS=${RETRY_BASE_DELAY_SECONDS:-10.0}
+      - RETRY_MAX_DELAY_SECONDS=${RETRY_MAX_DELAY_SECONDS:-300.0}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - flowforge-network
 
-  # worker:
-  #   build:
-  #     context: ../worker
-  #     dockerfile: Dockerfile
-  #   container_name: flowforge-worker
-  #   environment:
-  #     - CELERY_BROKER_URL=redis://redis:6379/0
-  #     - CELERY_RESULT_BACKEND=redis://redis:6379/0
-  #   depends_on:
-  #     - redis
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    container_name: flowforge-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    depends_on:
+      - backend
+    networks:
+      - flowforge-network
 
-  # frontend:
-  #   build:
-  #     context: ../frontend
-  #     dockerfile: Dockerfile
-  #   container_name: flowforge-frontend
-  #   ports:
-  #     - "3000:3000"
-  #   depends_on:
-  #     - backend
+networks:
+  flowforge-network:
+    name: flowforge_network
+    driver: bridge
 
 volumes:
+  postgres_data:
+    name: flowforge_postgres_data
   redis_data:
-  # postgres_data:
+    name: flowforge_redis_data
