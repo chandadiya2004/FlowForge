@@ -2,9 +2,10 @@ name: FlowForge CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, diya-feature, "feature/**" ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, diya-feature ]
+  workflow_dispatch:
 
 jobs:
   backend-tests:
