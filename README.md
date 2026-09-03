@@ -46,15 +46,19 @@ FlowForge is a resilient, distributed job-processing platform designed to orches
    ```bash
    cd frontend
    ```
-2. Install dependencies:
+2. Ensure environment variables are configured in `frontend/.env.local`:
+   ```bash
+   NEXT_PUBLIC_API_URL=http://localhost:8000
+   ```
+3. Install dependencies:
    ```bash
    npm install
    ```
-3. Start the Next.js development server:
+4. Start the Next.js development server:
    ```bash
    npm run dev
    ```
-4. Open [http://localhost:3000](http://localhost:3000) in your browser.
+5. Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ### Worker Quickstart
 
@@ -93,6 +97,6 @@ The worker process connects to Redis for task queuing and shares the database mo
 - [x] **Milestone 5**: Job Lifecycle, Task Handlers & Sequential Orchestration
 - [x] **Milestone 6**: Error Handling, Retries & Exponential Backoff (Dead-Letter Handling)
 - [x] **Milestone 7**: Priority Queues (High, Default, Low Tiered Routing)
-- [ ] **Milestone 8**: Real-time Status Updates (WebSockets / SSE)
+- [x] **Milestone 8**: Dashboard UI (Next.js App Router, Workflows, Live Job Polling & Dead-Letter Admin)
 - [ ] **Milestone 9**: Full Docker & Infrastructure Orchestration
 - [ ] **Milestone 10**: CI/CD Pipelines & Automated Production Deployment
