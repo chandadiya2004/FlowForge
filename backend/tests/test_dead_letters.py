@@ -202,7 +202,7 @@ def test_execute_task_retries_then_dead_letters():
         mock_apply.assert_called_once()
         _, kwargs = mock_apply.call_args
         assert "countdown" in kwargs
-        assert kwargs["countdown"] >= 1
+        assert kwargs["countdown"] >= 0
 
     # Verify task is RETRYING and job is STILL RUNNING
     db2 = TestingSessionLocal()

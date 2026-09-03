@@ -31,6 +31,10 @@ def dispatch_task(
     """Dispatches an asynchronous task by name to Celery without loading worker modules."""
     if queue:
         options["queue"] = queue
+    if getattr(celery_client.conf, "task_always_eager", False):
+        task = celery_client.tasks.get(name)
+        if task:
+            return task.apply(args=args or [], kwargs=kwargs or {})
     return celery_client.send_task(name, args=args or [], kwargs=kwargs or {}, **options)
 
 

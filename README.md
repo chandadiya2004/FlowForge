@@ -102,6 +102,38 @@ npm run dev
 
 ---
 
+## Testing & CI
+
+### Backend Tests
+The backend test suite uses pytest with an isolated in-memory SQLite database, synchronous in-process eager Celery execution, and respx for outbound HTTP mocking.
+```bash
+cd backend
+# Run all tests with coverage report:
+pytest --cov=app --cov=tasks --cov-report=term-missing
+```
+
+### Frontend Tests
+The frontend test suite uses Jest with React Testing Library and jsdom to verify the API client's 401 refresh loop, login error handling, and role-based navigation rendering.
+```bash
+cd frontend
+# Run Jest test suite:
+npm test
+
+# Run ESLint:
+npm run lint
+
+# Run Next.js production build check:
+npm run build
+```
+
+### Continuous Integration (CI)
+GitHub Actions (`.github/workflows/ci.yml`) runs on every push and pull request to `main`:
+1. **Backend Tests & Coverage**: Spins up Postgres 16 and Redis 7 service containers, executes Alembic migrations, and runs pytest with coverage.
+2. **Frontend Tests & Build**: Installs dependencies (`npm ci`), runs ESLint, executes Jest tests, and runs `next build`.
+3. **Docker Build Validation**: Builds the `backend`, `worker`, and `frontend` Docker images in parallel to prevent build rot.
+
+---
+
 ## Roadmap & Milestones
 
 - [x] **Milestone 1**: Monorepo Structure & Tooling Skeleton
@@ -113,4 +145,4 @@ npm run dev
 - [x] **Milestone 7**: Priority Queues (High, Default, Low Tiered Routing)
 - [x] **Milestone 8**: Dashboard UI (Next.js App Router, Workflows, Live Job Polling & Dead-Letter Admin)
 - [x] **Milestone 9**: Full Docker & Infrastructure Orchestration (Postgres, Redis, Backend, Worker, Frontend)
-- [ ] **Milestone 10**: CI/CD Pipelines & Automated Production Deployment
+- [x] **Milestone 10**: Automated Tests & CI (Pytest, Coverage, Respx, Jest, RTL, GitHub Actions Pipeline)

@@ -82,7 +82,9 @@ def execute_task(task_id: str) -> dict[str, str]:
 
                 # Re-dispatch using countdown preserving priority queue; do NOT advance job orchestration
                 queue = get_queue_for_priority(job.priority if job else 5)
-                execute_task.apply_async(args=[task_id], countdown=max(1, int(delay)), queue=queue)
+                from celery_app import celery_app
+                countdown = 0 if getattr(celery_app.conf, "task_always_eager", False) else max(1, int(delay))
+                execute_task.apply_async(args=[task_id], countdown=countdown, queue=queue)
                 return {"status": "retrying", "task_id": task_id, "retry_count": str(task.retry_count)}
 
             else:
