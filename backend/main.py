@@ -2,6 +2,8 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.auth import router as auth_router
+from app.api.jobs import router as jobs_router
+from app.api.workflows import router as workflows_router
 from app.core.config import settings
 from app.core.deps import require_role
 from app.models.user import User
@@ -20,8 +22,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount authentication router
+# Mount routers
 app.include_router(auth_router, prefix="/auth", tags=["Auth"])
+app.include_router(workflows_router, prefix="/workflows", tags=["Workflows"])
+app.include_router(jobs_router)  # Provides /jobs and /workflows/{id}/jobs
 
 
 @app.get("/health", tags=["Health"])
