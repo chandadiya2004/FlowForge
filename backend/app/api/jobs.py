@@ -3,6 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
+from app.core.celery_client import dispatch_task
 from app.core.db import get_db
 from app.core.deps import get_current_user
 from app.models.job import Job, JobStatus
@@ -81,6 +82,58 @@ def create_job_for_workflow(
     db.commit()
     db.refresh(new_job)
     return new_job
+
+
+@router.post(
+    "/jobs/{job_id}/trigger",
+    response_model=JobDetailRead,
+    status_code=status.HTTP_200_OK,
+    summary="Trigger execution of a pending job",
+    tags=["Jobs"],
+)
+def trigger_job(
+    job_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Job:
+    """Dispatches execution of the job's first task to Celery."""
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found",
+        )
+
+    is_admin = current_user.role == UserRole.ADMIN or str(current_user.role) == "admin"
+    if job.triggered_by != current_user.id and not is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Operation not permitted. You do not own this job.",
+        )
+
+    if job.status != JobStatus.PENDING:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot trigger job with status '{job.status}'. Only 'pending' jobs can be triggered.",
+        )
+
+    first_task = (
+        db.query(Task)
+        .filter(Task.job_id == job.id)
+        .order_by(Task.sequence.asc())
+        .first()
+    )
+
+    if not first_task:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Job has no tasks to execute.",
+        )
+
+    # Dispatch first task asynchronously via shared Celery client
+    dispatch_task("execute_task", args=[str(first_task.id)])
+
+    return job
 
 
 @router.get(

@@ -56,28 +56,40 @@ FlowForge is a resilient, distributed job-processing platform designed to orches
    ```
 4. Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-### Worker Quickstart (Preview)
+### Worker Quickstart
 
-1. Navigate to the `worker/` directory:
+The worker process connects to Redis for task queuing and shares the database models and configuration directly with `backend/` by including `backend/` in `sys.path` (configured automatically in `worker/celery_app.py` and `worker/db.py`).
+
+1. Ensure Redis is running:
+   ```bash
+   docker compose -f infrastructure/docker-compose.yml up -d redis
+   ```
+2. Navigate to the `worker/` directory:
    ```bash
    cd worker
    ```
-2. Start the Celery worker (requires Redis running locally or configured via `REDIS_URL`):
+3. Start the Celery worker (using the virtual environment created in `backend/`):
    ```bash
+   # Windows PowerShell:
+   ..\backend\.venv\Scripts\celery -A celery_app worker --loglevel=info -P solo
+
+   # Linux / macOS:
+   source ../backend/.venv/bin/activate
    celery -A celery_app worker --loglevel=info
    ```
+   *(Note: `-P solo` is required on Windows to avoid OS fork limitations).*
 
 ---
 
 ## Roadmap & Milestones
 
 - [x] **Milestone 1**: Monorepo Structure & Tooling Skeleton
-- [ ] **Milestone 2**: Authentication & User Management
-- [ ] **Milestone 3**: Database Models & Migrations
-- [ ] **Milestone 4**: Job Queue & Celery Integration
-- [ ] **Milestone 5**: Core API Routes & Job Lifecycle
-- [ ] **Milestone 6**: Real-time Status Updates (WebSockets / SSE)
-- [ ] **Milestone 7**: Frontend Dashboard & Job Management UI
-- [ ] **Milestone 8**: Error Handling & Retry Policies
-- [ ] **Milestone 9**: Docker & Infrastructure Orchestration
-- [ ] **Milestone 10**: CI/CD Pipelines & Automated Testing
+- [x] **Milestone 2**: Authentication & Role-Based Access Control (RBAC)
+- [x] **Milestone 3**: Database Models (Workflow, Job, Task) & Schemas
+- [x] **Milestone 4**: Redis & Celery Asynchronous Task Wiring
+- [x] **Milestone 5**: Job Lifecycle, Task Handlers & Sequential Orchestration
+- [ ] **Milestone 6**: Error Handling, Retries & Exponential Backoff
+- [ ] **Milestone 7**: Priority Queues & Advanced Scheduling
+- [ ] **Milestone 8**: Real-time Status Updates (WebSockets / SSE)
+- [ ] **Milestone 9**: Full Docker & Infrastructure Orchestration
+- [ ] **Milestone 10**: CI/CD Pipelines & Automated Production Deployment
