@@ -100,7 +100,10 @@ def requeue_dead_letter(
     db.commit()
     db.refresh(dl)
 
-    # 4. Dispatch task fresh via Celery
-    dispatch_task("execute_task", args=[str(task.id)])
+    # 4. Dispatch task fresh via Celery preserving job priority queue
+    from app.core.queue_routing import get_queue_for_priority
+
+    queue = get_queue_for_priority(job.priority if job else 5)
+    dispatch_task("execute_task", args=[str(task.id)], queue=queue)
 
     return dl

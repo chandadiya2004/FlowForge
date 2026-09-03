@@ -68,16 +68,19 @@ The worker process connects to Redis for task queuing and shares the database mo
    ```bash
    cd worker
    ```
-3. Start the Celery worker (using the virtual environment created in `backend/`):
+3. Start the Celery worker listening on all three priority queues (`high,default,low`):
    ```bash
    # Windows PowerShell:
-   ..\backend\.venv\Scripts\celery -A celery_app worker --loglevel=info -P solo
+   ..\backend\.venv\Scripts\celery -A celery_app worker -Q high,default,low --loglevel=info -P solo
 
    # Linux / macOS:
    source ../backend/.venv/bin/activate
-   celery -A celery_app worker --loglevel=info
+   celery -A celery_app worker -Q high,default,low --loglevel=info
    ```
    *(Note: `-P solo` is required on Windows to avoid OS fork limitations).*
+
+> [!NOTE]
+> **Production Deployment Note**: For local development, a single worker process monitors `-Q high,default,low` in priority order. In production (Milestone 11), dedicated worker pools are deployed per queue (e.g., separate worker instances for `high`, `default`, and `low` with distinct autoscaling policies and concurrency limits) to ensure critical jobs are never blocked by low-priority workloads.
 
 ---
 
@@ -88,8 +91,8 @@ The worker process connects to Redis for task queuing and shares the database mo
 - [x] **Milestone 3**: Database Models (Workflow, Job, Task) & Schemas
 - [x] **Milestone 4**: Redis & Celery Asynchronous Task Wiring
 - [x] **Milestone 5**: Job Lifecycle, Task Handlers & Sequential Orchestration
-- [ ] **Milestone 6**: Error Handling, Retries & Exponential Backoff
-- [ ] **Milestone 7**: Priority Queues & Advanced Scheduling
+- [x] **Milestone 6**: Error Handling, Retries & Exponential Backoff (Dead-Letter Handling)
+- [x] **Milestone 7**: Priority Queues (High, Default, Low Tiered Routing)
 - [ ] **Milestone 8**: Real-time Status Updates (WebSockets / SSE)
 - [ ] **Milestone 9**: Full Docker & Infrastructure Orchestration
 - [ ] **Milestone 10**: CI/CD Pipelines & Automated Production Deployment

@@ -25,9 +25,12 @@ def dispatch_task(
     name: str,
     args: Optional[list[Any]] = None,
     kwargs: Optional[dict[str, Any]] = None,
+    queue: Optional[str] = None,
     **options: Any,
 ) -> AsyncResult:
     """Dispatches an asynchronous task by name to Celery without loading worker modules."""
+    if queue:
+        options["queue"] = queue
     return celery_client.send_task(name, args=args or [], kwargs=kwargs or {}, **options)
 
 

@@ -144,7 +144,7 @@ def test_dead_letter_requeue():
         assert res.status_code == 200
         data = res.json()
         assert data["requeued_at"] is not None
-        mock_dispatch.assert_called_once_with("execute_task", args=[str(t_id)])
+        mock_dispatch.assert_called_once_with("execute_task", args=[str(t_id)], queue="default")
 
     # Verify task and job status reset in database
     db2 = TestingSessionLocal()

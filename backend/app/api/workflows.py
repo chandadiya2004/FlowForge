@@ -7,7 +7,7 @@ from app.core.db import get_db
 from app.core.deps import get_current_user
 from app.models.user import User, UserRole
 from app.models.workflow import Workflow
-from app.schemas.job import JobDetailRead
+from app.schemas.job import JobCreate, JobDetailRead
 from app.schemas.workflow import WorkflowCreate, WorkflowRead, WorkflowUpdate
 
 router = APIRouter()
@@ -72,12 +72,13 @@ def list_workflows(
 )
 def create_job_for_workflow(
     workflow_id: uuid.UUID,
+    job_in: Optional[JobCreate] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Creates a Job in 'pending' status and unpacks workflow definition entries into ordered 'pending' tasks."""
     from app.api.jobs import create_job_for_workflow as _create_job
-    return _create_job(workflow_id=workflow_id, db=db, current_user=current_user)
+    return _create_job(workflow_id=workflow_id, job_in=job_in, db=db, current_user=current_user)
 
 
 @router.get(

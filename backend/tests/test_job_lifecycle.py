@@ -91,7 +91,7 @@ def test_trigger_job_endpoint_success():
         assert res.status_code == 200
         data = res.json()
         assert data["id"] == str(job_id)
-        mock_dispatch.assert_called_once_with("execute_task", args=[str(task1_id)])
+        mock_dispatch.assert_called_once_with("execute_task", args=[str(task1_id)], queue="default")
 
 
 def test_trigger_job_non_pending_returns_409():
@@ -147,10 +147,10 @@ def test_orchestration_progression_and_completion():
     db.add_all([user, wf, job, task1, task2])
     db.commit()
 
-    with patch("tasks.execute_task.execute_task.delay") as mock_delay:
+    with patch("tasks.execute_task.execute_task.apply_async") as mock_apply:
         handle_task_completion(task1.id, db)
-        # Should dispatch next task in sequence
-        mock_delay.assert_called_once_with(str(task2.id))
+        # Should dispatch next task in sequence preserving queue
+        mock_apply.assert_called_once_with(args=[str(task2.id)], queue="default")
 
     # Now simulate task2 completing
     task2.status = TaskStatus.COMPLETED

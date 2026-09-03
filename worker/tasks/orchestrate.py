@@ -2,12 +2,13 @@ import uuid
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
+from app.core.queue_routing import get_queue_for_priority
 from app.models.job import Job, JobStatus
 from app.models.task import Task, TaskStatus
 
 
 def handle_task_completion(task_id: uuid.UUID | str, db: Session) -> None:
-    """Evaluates task outcome and coordinates the next step in the job lifecycle."""
+    """Evaluates task outcome and coordinates the next step in the job lifecycle using priority queues."""
     if isinstance(task_id, str):
         task_id = uuid.UUID(task_id)
 
@@ -38,9 +39,11 @@ def handle_task_completion(task_id: uuid.UUID | str, db: Session) -> None:
         )
 
         if next_task:
-            # Dispatch next task in pipeline
+            # Dispatch next task in pipeline maintaining the job's priority queue
             from tasks.execute_task import execute_task
-            execute_task.delay(str(next_task.id))
+
+            queue = get_queue_for_priority(job.priority)
+            execute_task.apply_async(args=[str(next_task.id)], queue=queue)
         else:
             # All tasks in sequence finished: mark job completed
             job.status = JobStatus.COMPLETED

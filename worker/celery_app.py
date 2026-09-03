@@ -20,6 +20,9 @@ celery_app = Celery(
     backend=settings.REDIS_URL,
 )
 
+from kombu import Queue
+from app.core.queue_routing import DEFAULT_QUEUE, HIGH_QUEUE, LOW_QUEUE
+
 celery_app.conf.update(
     task_serializer="json",
     result_serializer="json",
@@ -28,6 +31,12 @@ celery_app.conf.update(
     result_expires=3600,
     timezone="UTC",
     enable_utc=True,
+    task_queues=(
+        Queue(HIGH_QUEUE),
+        Queue(DEFAULT_QUEUE),
+        Queue(LOW_QUEUE),
+    ),
+    task_default_queue=DEFAULT_QUEUE,
 )
 
 # Autodiscover and import all modules inside worker/tasks/

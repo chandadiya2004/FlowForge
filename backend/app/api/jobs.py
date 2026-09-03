@@ -1,16 +1,17 @@
 import uuid
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.celery_client import dispatch_task
 from app.core.db import get_db
 from app.core.deps import get_current_user
+from app.core.queue_routing import get_queue_for_priority
 from app.models.job import Job, JobStatus
 from app.models.task import Task, TaskStatus
 from app.models.user import User, UserRole
 from app.models.workflow import Workflow
-from app.schemas.job import JobDetailRead, JobRead
+from app.schemas.job import JobCreate, JobDetailRead, JobPriorityUpdate, JobRead
 from app.schemas.task import TaskRead
 
 router = APIRouter()
@@ -25,6 +26,7 @@ router = APIRouter()
 )
 def create_job_for_workflow(
     workflow_id: uuid.UUID,
+    job_in: Optional[JobCreate] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Job:
@@ -50,11 +52,17 @@ def create_job_for_workflow(
         )
 
     # 1. Create Job record
+    priority = 5
+    if job_in is not None and hasattr(job_in, "priority") and job_in.priority is not None:
+        priority = job_in.priority
+    elif isinstance(job_in, dict) and "priority" in job_in:
+        priority = int(job_in["priority"])
+
     new_job = Job(
         workflow_id=workflow.id,
         triggered_by=current_user.id,
         status=JobStatus.PENDING,
-        priority=5,
+        priority=priority,
     )
     db.add(new_job)
     db.flush()
@@ -130,9 +138,49 @@ def trigger_job(
             detail="Job has no tasks to execute.",
         )
 
-    # Dispatch first task asynchronously via shared Celery client
-    dispatch_task("execute_task", args=[str(first_task.id)])
+    # Dispatch first task asynchronously via shared Celery client using priority queue
+    queue = get_queue_for_priority(job.priority)
+    dispatch_task("execute_task", args=[str(first_task.id)], queue=queue)
 
+    return job
+
+
+@router.put(
+    "/jobs/{job_id}/priority",
+    response_model=JobRead,
+    summary="Update priority of a pending job",
+    tags=["Jobs"],
+)
+def update_job_priority(
+    job_id: uuid.UUID,
+    priority_in: JobPriorityUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Job:
+    """Allows updating the priority of a job while it is still 'pending'."""
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found",
+        )
+
+    is_admin = current_user.role == UserRole.ADMIN or str(current_user.role) == "admin"
+    if job.triggered_by != current_user.id and not is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Operation not permitted. You do not own this job.",
+        )
+
+    if job.status != JobStatus.PENDING:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot change priority of a job with status '{job.status}'. Only 'pending' jobs can be re-prioritized.",
+        )
+
+    job.priority = priority_in.priority
+    db.commit()
+    db.refresh(job)
     return job
 
 

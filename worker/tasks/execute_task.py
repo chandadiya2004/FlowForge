@@ -5,6 +5,7 @@ from celery import shared_task
 
 from db import get_worker_db
 from app.core.config import settings
+from app.core.queue_routing import get_queue_for_priority
 from app.models.dead_letter import DeadLetterTask
 from app.models.job import Job, JobStatus
 from app.models.task import Task, TaskStatus
@@ -79,8 +80,9 @@ def execute_task(task_id: str) -> dict[str, str]:
                     delay,
                 )
 
-                # Re-dispatch using countdown; do NOT advance job orchestration
-                execute_task.apply_async(args=[task_id], countdown=max(1, int(delay)))
+                # Re-dispatch using countdown preserving priority queue; do NOT advance job orchestration
+                queue = get_queue_for_priority(job.priority if job else 5)
+                execute_task.apply_async(args=[task_id], countdown=max(1, int(delay)), queue=queue)
                 return {"status": "retrying", "task_id": task_id, "retry_count": str(task.retry_count)}
 
             else:
