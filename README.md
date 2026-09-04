@@ -1,148 +1,125 @@
 # FlowForge
 
-FlowForge is a resilient, distributed job-processing platform designed to orchestrate asynchronous tasks, pipeline execution, and worker management at scale. It couples a responsive Next.js frontend with a high-performance FastAPI backend, backed by PostgreSQL, Redis, and Celery for distributed worker coordination.
+**A resilient, distributed workflow orchestration platform built for reliable background execution, automatic retries, and priority scheduling.**
 
-## Setup
+[![CI](https://github.com/chandadiya2004/FlowForge/actions/workflows/ci.yml/badge.svg)](https://github.com/chandadiya2004/FlowForge/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python 3.11](https://img.shields.io/badge/Python-3.11-blue.svg)](https://www.python.org/)
+[![Next.js 16](https://img.shields.io/badge/Next.js-16-black.svg)](https://nextjs.org/)
+<!-- Note: The CI badge references github.com/chandadiya2004/FlowForge and reflects the status of .github/workflows/ci.yml -->
 
-> **Note:** Milestone 1 establishes the initial repository skeleton and tooling. As subsequent milestones progress, detailed instructions for running database migrations, workers, and containerized environments will be updated here.
+---
 
-### Prerequisites
-- Python 3.11+
-- Node.js 18+ and npm
-- Redis (for Celery broker / results in future milestones)
-- PostgreSQL (for relational data storage in future milestones)
+FlowForge replaces fragile cron scripts and untracked background processes with structured, observable workflow pipelines. It gives teams real-time visibility into multi-step jobs, automatically recovers from transient network glitches with exponential backoff retries, and isolates poisoned tasks into a dedicated Dead-Letter Queue (DLQ) for operator triage.
 
-## Quickstart & Setup (Docker Compose)
+---
 
-The entire FlowForge stack (PostgreSQL, Redis, FastAPI Backend, Celery Worker, and Next.js Frontend) can be launched using Docker Compose.
+## Features
 
-### 1. Configure Environment Variables
-Copy the infrastructure environment template:
+- **JWT Authentication & RBAC**: Stateless access/refresh token rotation with `admin`, `member`, and `viewer` permissions.
+- **Declarative Step Pipelines**: Define ordered workflow chains using built-in task handlers (`log_message`, `sleep`, `http_call`).
+- **Priority-Tiered Scheduling**: Route urgent workflows to `high`, `default`, or `low` Celery queues over Redis.
+- **Exponential Backoff Retries**: Automatically retry failed steps with non-blocking Celery countdown timers.
+- **Dead-Letter Queue (DLQ)**: Capture immutable failure snapshots with error stack traces and one-click administrative requeuing.
+- **Real-Time Next.js Dashboard**: Monitor live step progressions and inspect task outputs via lightweight 2-second status polling.
+- **Single-Command Docker Stack**: Multi-container topology with pre-configured networking, volumes, and service health checks.
+- **Automated CI Quality Gates**: 69 backend pytest tests (93% coverage) and Jest frontend suites running on every push.
+
+---
+
+## Preview
+
+![FlowForge Dashboard](docs/assets/dashboard-screenshot.png)
+<!-- Screenshot placeholder: Place a dashboard screenshot or GIF at docs/assets/dashboard-screenshot.png -->
+
+---
+
+## Quick Start
+
+Spin up the complete five-service stack using Docker Compose:
+
 ```bash
+# 1. Clone the repository
+git clone https://github.com/chandadiya2004/FlowForge.git
+cd FlowForge
+
+# 2. Configure environment variables
 cp infrastructure/.env.example infrastructure/.env
-```
-*(On Windows PowerShell: `Copy-Item infrastructure/.env.example infrastructure/.env`)*. Review and update `infrastructure/.env` if you want custom database credentials or secrets.
 
-### 2. Start the Stack
-Build and launch all services with health checks and automated database migrations:
-```bash
-docker compose -f infrastructure/docker-compose.yml up --build
-```
-Or in detached mode:
-```bash
+# 3. Build and launch all services
 docker compose -f infrastructure/docker-compose.yml up --build -d
 ```
 
-Once running:
-- **Web Dashboard**: [http://localhost:3000](http://localhost:3000)
-- **FastAPI Documentation & Swagger UI**: [http://localhost:8000/docs](http://localhost:8000/docs)
-- **API Health Endpoint**: [http://localhost:8000/health](http://localhost:8000/health)
+Once all containers report healthy, open your browser:
+- **Web Dashboard**: [`http://localhost:3000`](http://localhost:3000)
+- **API Health Check**: [`http://localhost:8000/health`](http://localhost:8000/health)
+- **Interactive API Docs (Swagger UI)**: [`http://localhost:8000/docs`](http://localhost:8000/docs)
 
-### 3. Monitoring Logs & Debugging
-Inspect real-time logs for any specific service (e.g., the worker or backend):
-```bash
-# View worker logs
-docker compose -f infrastructure/docker-compose.yml logs -f worker
+*For step-by-step onboarding, prerequisites, and troubleshooting, read the [Getting Started Tutorial](docs/02-tutorials/getting-started.md).*
 
-# View backend logs
-docker compose -f infrastructure/docker-compose.yml logs -f backend
-```
+---
 
-### 4. Teardown
-To stop all services cleanly:
-```bash
-docker compose -f infrastructure/docker-compose.yml down
-```
-To stop all services and **delete all persistent volumes** (PostgreSQL database and Redis storage) for a completely fresh start:
-```bash
-docker compose -f infrastructure/docker-compose.yml down -v
+## Tech Stack
+
+FlowForge uses a modern, modular architecture:
+
+- [FastAPI](docs/01-introduction/tech-stack.md#1-fastapi) — High-performance async REST API & Pydantic request validation
+- [PostgreSQL](docs/01-introduction/tech-stack.md#3-postgresql) — ACID-compliant relational system of record
+- [Redis](docs/01-introduction/tech-stack.md#4-redis) — Low-latency Celery message broker & result backend
+- [Celery](docs/01-introduction/tech-stack.md#5-celery) — Distributed asynchronous task execution & priority routing
+- [Next.js](docs/01-introduction/tech-stack.md#7-nextjs--typescript) — React 19 web dashboard built with TypeScript & Tailwind CSS
+- [Docker Compose](docs/01-introduction/tech-stack.md#9-docker--docker-compose) — Multi-container local orchestration & networking
+- [GitHub Actions](docs/01-introduction/tech-stack.md#10-github-actions) — Automated continuous integration test pipeline
+
+*For architectural justifications and specific roles of each technology, see the [Tech Stack Reference](docs/01-introduction/tech-stack.md).*
+
+---
+
+## Documentation
+
+Full documentation is available in the [`docs/`](docs/README.md) directory:
+
+| Section | Description | Key Documents |
+| :--- | :--- | :--- |
+| **[1. Introduction](docs/README.md#1-introduction)** | Architectural context and high-level design. | [Overview](docs/01-introduction/overview.md) · [Tech Stack](docs/01-introduction/tech-stack.md) · [Architecture Diagram & Walkthrough](docs/01-introduction/architecture-diagram.md) |
+| **[2. Tutorials](docs/README.md#2-tutorials)** | Hands-on guides from setup to first workflow. | [Getting Started](docs/02-tutorials/getting-started.md) · [First Workflow Walkthrough](docs/02-tutorials/first-workflow-walkthrough.md) · [Understanding Docker](docs/02-tutorials/understanding-docker.md) |
+| **[3. How-to Guides](docs/README.md#3-how-to-guides)** | Practical recipes for everyday development. | [Running Locally Without Docker](docs/03-how-to-guides/running-locally-without-docker.md) · [Running the Test Suite](docs/03-how-to-guides/running-the-test-suite.md) · [Git & GitHub Workflow](docs/03-how-to-guides/git-and-github-workflow.md) · [Managing Dead Letters](docs/03-how-to-guides/managing-dead-letters.md) · [Deploying to Production (Stub)](docs/03-how-to-guides/deploying-to-production.md) |
+| **[4. Reference](docs/README.md#4-reference)** | Detailed technical specifications. | [API Reference](docs/04-reference/api-reference.md) · [Environment Variables](docs/04-reference/environment-variables.md) · [Data Model & State Machines](docs/04-reference/data-model.md) · [CI/CD Pipeline](docs/04-reference/ci-cd-pipeline.md) |
+| **[5. Explanation](docs/README.md#5-explanation)** | Deep dives into architectural trade-offs. | [Auth & RBAC](docs/05-explanation/auth-and-rbac.md) · [Job Lifecycle & Orchestration](docs/05-explanation/job-lifecycle-and-orchestration.md) · [Retry & Dead-Letter Strategy](docs/05-explanation/retry-and-dead-letter-strategy.md) · [Priority Queue Design](docs/05-explanation/priority-queue-design.md) · [Design Decisions & Trade-offs](docs/05-explanation/design-decisions-and-tradeoffs.md) |
+| **[6. Project](docs/README.md#6-project)** | Delivery status, backlog, and FAQ. | [Project Roadmap](docs/06-project/roadmap.md) · [Future Scope](docs/06-project/future-scope.md) · [FAQ](docs/06-project/faq.md) |
+
+---
+
+## Project Structure
+
+```text
+FlowForge/
+├── backend/         # FastAPI application, SQLAlchemy models, and Alembic migrations
+├── frontend/        # Next.js 16 dashboard (React 19, TypeScript, Tailwind CSS)
+├── worker/          # Celery background worker, task handlers, and priority routing
+├── infrastructure/  # Docker Compose files, container configs, and environment templates
+└── docs/            # Complete documentation suite, tutorials, and architectural references
 ```
 
 ---
 
-## Running Services Individually for Debugging
+## Project Status
 
-If you prefer to run services manually on your host machine without containerizing every component:
+FlowForge is actively developed. Current milestone status according to the [Roadmap](docs/06-project/roadmap.md):
 
-### 1. Infrastructure Services (PostgreSQL & Redis)
-```bash
-docker compose -f infrastructure/docker-compose.yml up -d postgres redis
-```
-
-### 2. Backend
-```bash
-cd backend
-python -m venv .venv
-# Windows:
-.venv\Scripts\Activate.ps1
-# Linux/macOS:
-source .venv/bin/activate
-
-pip install -r requirements.txt
-alembic upgrade head
-uvicorn main:app --reload
-```
-
-### 3. Celery Worker
-```bash
-cd worker
-# Windows (requires -P solo):
-..\backend\.venv\Scripts\celery -A celery_app worker -Q high,default,low --loglevel=info -P solo
-# Linux/macOS:
-source ../backend/.venv/bin/activate
-celery -A celery_app worker -Q high,default,low --loglevel=info
-```
-
-### 4. Frontend
-```bash
-cd frontend
-npm install
-npm run dev
-```
+- **Milestones 1–10 (Complete)**: Core skeleton, JWT/RBAC auth, CRUD models, Celery/Redis async plumbing, execution engine, retry & dead-lettering, priority queues, Next.js dashboard, Docker Compose stack, and CI test pipeline.
+- **Documentation Suite (Complete)**: Comprehensive technical documentation across all modules.
+- **Milestone 11 (Planned)**: Production cloud deployment & infrastructure provisioning.
+- **Milestone 12 (Planned)**: High-concurrency load testing & worker benchmarking.
 
 ---
 
-## Testing & CI
+## Contributing
 
-### Backend Tests
-The backend test suite uses pytest with an isolated in-memory SQLite database, synchronous in-process eager Celery execution, and respx for outbound HTTP mocking.
-```bash
-cd backend
-# Run all tests with coverage report:
-pytest --cov=app --cov=tasks --cov-report=term-missing
-```
-
-### Frontend Tests
-The frontend test suite uses Jest with React Testing Library and jsdom to verify the API client's 401 refresh loop, login error handling, and role-based navigation rendering.
-```bash
-cd frontend
-# Run Jest test suite:
-npm test
-
-# Run ESLint:
-npm run lint
-
-# Run Next.js production build check:
-npm run build
-```
-
-### Continuous Integration (CI)
-GitHub Actions (`.github/workflows/ci.yml`) runs on every push and pull request to `main`:
-1. **Backend Tests & Coverage**: Spins up Postgres 16 and Redis 7 service containers, executes Alembic migrations, and runs pytest with coverage.
-2. **Frontend Tests & Build**: Installs dependencies (`npm ci`), runs ESLint, executes Jest tests, and runs `next build`.
-3. **Docker Build Validation**: Builds the `backend`, `worker`, and `frontend` Docker images in parallel to prevent build rot.
+Contributions are welcome! Please review our [Contribution Guidelines](CONTRIBUTING.md) and the [Git & GitHub Workflow Guide](docs/03-how-to-guides/git-and-github-workflow.md) before submitting a Pull Request.
 
 ---
 
-## Roadmap & Milestones
+## License
 
-- [x] **Milestone 1**: Monorepo Structure & Tooling Skeleton
-- [x] **Milestone 2**: Authentication & Role-Based Access Control (RBAC)
-- [x] **Milestone 3**: Database Models (Workflow, Job, Task) & Schemas
-- [x] **Milestone 4**: Redis & Celery Asynchronous Task Wiring
-- [x] **Milestone 5**: Job Lifecycle, Task Handlers & Sequential Orchestration
-- [x] **Milestone 6**: Error Handling, Retries & Exponential Backoff (Dead-Letter Handling)
-- [x] **Milestone 7**: Priority Queues (High, Default, Low Tiered Routing)
-- [x] **Milestone 8**: Dashboard UI (Next.js App Router, Workflows, Live Job Polling & Dead-Letter Admin)
-- [x] **Milestone 9**: Full Docker & Infrastructure Orchestration (Postgres, Redis, Backend, Worker, Frontend)
-- [x] **Milestone 10**: Automated Tests & CI (Pytest, Coverage, Respx, Jest, RTL, GitHub Actions Pipeline)
+This project is licensed under the terms of the [MIT License](LICENSE).
