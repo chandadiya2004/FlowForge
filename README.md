@@ -9,10 +9,10 @@
 <br />
 
 [![CI Build](https://img.shields.io/github/actions/workflow/status/chandadiya2004/FlowForge/ci.yml?branch=main&style=flat-square&logo=github-actions&logoColor=white&label=CI%20Build)](https://github.com/chandadiya2004/FlowForge/actions/workflows/ci.yml)
+[![Docker Hub](https://img.shields.io/badge/Docker_Hub-arpanpramanik2003-blue?style=flat-square&logo=docker&logoColor=white)](https://hub.docker.com/u/arpanpramanik2003)
 [![Tests Passing](https://img.shields.io/badge/tests-69%20passed-success?style=flat-square&logo=pytest&logoColor=white)](docs/03-how-to-guides/running-the-test-suite.md)
 [![Coverage](https://img.shields.io/badge/coverage-93%25-brightgreen?style=flat-square)](docs/04-reference/ci-cd-pipeline.md)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](LICENSE)
-[![Docker Ready](https://img.shields.io/badge/docker-compose%20ready-2496ED?style=flat-square&logo=docker&logoColor=white)](docs/02-tutorials/understanding-docker.md)
 
 <br />
 
@@ -52,8 +52,8 @@ Running background tasks with unmanaged shell scripts or naive cron jobs creates
 - 🔁 **Exponential Backoff Retries**: Transient task errors trigger scheduled retry countdowns without blocking worker concurrency.
 - ☠️ **Dead-Letter Queue (DLQ)**: Exhausted tasks capture full diagnostic snapshots (input data, error traces) with one-click administrative requeuing.
 - 📊 **Real-Time Next.js Dashboard**: Monitor live step progressions and inspect outputs with non-blocking 2-second client polling.
-- 🐳 **Unified Docker Compose Stack**: Complete multi-container environment with automated PostgreSQL and Redis health checks.
-- 🧪 **Continuous Integration**: 69 backend pytest tests (93% coverage) and Jest frontend suites running on every push.
+- 🐳 **Pre-Built Docker Hub Images**: Pull verified production images directly from [`arpanpramanik2003/flowforge-*`](https://hub.docker.com/u/arpanpramanik2003).
+- 🧪 **Continuous Integration**: Automated pytest, jest, and multi-image publishing to Docker Hub on every verified commit.
 
 ---
 
@@ -64,23 +64,31 @@ Running background tasks with unmanaged shell scripts or naive cron jobs creates
 
 ---
 
-## ⚡ Quick Start
+## ⚡ Quick Start: Running on Any Machine
 
-Spin up the complete multi-service stack in under 60 seconds with Docker Compose:
+You can run FlowForge immediately on any machine with Docker Desktop installed:
+
+### Option A: Run Pre-Built Docker Hub Images (Fastest — Ready in 30s)
+No compilers, Python, or Node.js required. Pulls official published images directly from Docker Hub:
 
 ```bash
-# 1. Clone the repository
+# 1. Clone repo and enter directory
 git clone https://github.com/chandadiya2004/FlowForge.git
 cd FlowForge
 
-# 2. Configure environment variables (pre-configured for local dev)
+# 2. Configure environment template
 cp infrastructure/.env.example infrastructure/.env
 
-# 3. Build and launch all five containers
+# 3. Launch the pre-built stack
+docker compose -f docker-compose.prod.yml up -d
+```
+
+### Option B: Build from Source (For Local Code Development)
+```bash
 docker compose -f infrastructure/docker-compose.yml up --build -d
 ```
 
-Once all containers report `healthy`, access the application:
+Once running, access the services:
 
 | Service | Endpoint | Purpose |
 | :--- | :--- | :--- |

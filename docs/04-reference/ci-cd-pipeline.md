@@ -95,23 +95,18 @@ Validates TypeScript syntax, code style, component logic, and Next.js bundle com
 
 ---
 
-### 3. `docker-build-check` (Docker Build Validation)
-Ensures that all production container images can be built cleanly from scratch without network timeouts, missing files, or layer caching corruptions.
+### 3. `docker-publish` (Docker Build & Push to Docker Hub)
+Builds production container images and, upon branch push with configured credentials, publishes them directly to Docker Hub registry.
 
 - **Steps**:
-  1. Sets up Docker Buildx via `docker/setup-buildx-action@v3`.
-  2. Validates Backend Dockerfile:
-     ```bash
-     docker build -t flowforge-backend:ci -f backend/Dockerfile backend/
-     ```
-  3. Validates Worker Dockerfile:
-     ```bash
-     docker build -t flowforge-worker:ci -f worker/Dockerfile .
-     ```
-  4. Validates Frontend Dockerfile:
-     ```bash
-     docker build -t flowforge-frontend:ci -f frontend/Dockerfile frontend/
-     ```
+  1. Checks out repository source via `actions/checkout@v4`.
+  2. Sets up Docker Buildx via `docker/setup-buildx-action@v3`.
+  3. Authenticates to Docker Hub using repository secrets (`DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`) via `docker/login-action@v3`.
+  4. Builds and publishes all three images to Docker Hub using `docker/build-push-action@v5`:
+     - `${{ secrets.DOCKERHUB_USERNAME }}/flowforge-backend:latest`
+     - `${{ secrets.DOCKERHUB_USERNAME }}/flowforge-worker:latest`
+     - `${{ secrets.DOCKERHUB_USERNAME }}/flowforge-frontend:latest`
+  5. On pull requests or when secrets are omitted, builds are validated locally without publishing.
 
 ---
 
@@ -124,18 +119,18 @@ GitHub displays the status of all three checks at the bottom of the PR conversat
 - **Red "X" (Failed)**: One or more steps failed. Click **"Details"** next to the failing check to expand the exact step log and examine the traceback.
 
 > [!IMPORTANT]
-> **Branch Protection Policy**: Pull Requests should **never** be merged with a red CI check. All three jobs (`backend-tests`, `frontend-tests`, `docker-build-check`) must report green before merging into `main`.
+> **Branch Protection Policy**: Pull Requests should **never** be merged with a red CI check. All three jobs (`backend-tests`, `frontend-tests`, `docker-publish`) must report green before merging into `main`.
 
 ### In the GitHub Actions Tab
 1. Click the **"Actions"** tab at the top of the GitHub repository.
 2. Select **"FlowForge CI"** in the left sidebar to view the chronological run history.
-3. Click into any specific workflow run to view the interactive timeline graph and execution durations for each job.
+3. Click into any specific workflow run to view the interactive timeline graph, execution durations, and container publishing logs.
 
 ---
 
-## Current Scope & Missing Deployment Step
+## Deployment & Image Publishing Status
 
 > [!NOTE]
-> The current CI pipeline is strictly an **automated verification pipeline**—it validates and tests code, but **does not deploy artifacts or publish containers** to cloud infrastructure.
-
-Automated cloud deployments, container registry publishing, and live zero-downtime database migrations will be introduced in Milestone 11. For the current deployment status and roadmap, see [Deploying to Production](../03-how-to-guides/deploying-to-production.md).
+> FlowForge now **automatically builds and publishes production container images to Docker Hub** on verified pushes. 
+> 
+> The next milestone (Milestone 11) will extend this pipeline to trigger live cloud container deployments (e.g. AWS ECS / Render / Fly.io). For production guidance, see [Deploying to Production](../03-how-to-guides/deploying-to-production.md).

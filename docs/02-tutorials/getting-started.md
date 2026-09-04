@@ -73,9 +73,22 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 
 ---
 
-### Step 3: Build and Start the Stack
+---
 
-Run Docker Compose pointing to `infrastructure/docker-compose.yml`:
+### Step 3: Launch FlowForge
+
+You can launch FlowForge in one of two ways:
+
+#### Option A: Quick Launch with Pre-Built Docker Hub Images (Fastest)
+If you just want to run FlowForge without building from source, pull the official pre-built production images from Docker Hub:
+
+```bash
+docker compose -f docker-compose.prod.yml up -d
+```
+*This downloads the lightweight pre-built images (`arpanpramanik2003/flowforge-backend`, `arpanpramanik2003/flowforge-worker`, `arpanpramanik2003/flowforge-frontend`) directly from Docker Hub and starts the full stack in under 30 seconds.*
+
+#### Option B: Build from Source (For Developers & Contributors)
+If you want to modify source code and build local container images:
 
 ```bash
 docker compose -f infrastructure/docker-compose.yml up --build -d
@@ -86,9 +99,9 @@ docker compose -f infrastructure/docker-compose.yml up --build -d
 2. Provisions persistent Docker volumes: `flowforge_postgres_data` and `flowforge_redis_data`.
 3. Starts `flowforge-postgres` and `flowforge-redis`.
 4. Executes health checks (`pg_isready` and `redis-cli ping`).
-5. Once healthy, builds and boots `flowforge-backend`. The backend container automatically runs `alembic upgrade head` to apply all database migrations before launching Uvicorn on port `8000`.
+5. Once healthy, launches `flowforge-backend`. The backend automatically runs `alembic upgrade head` to apply all database migrations before launching Uvicorn on port `8000`.
 6. Concurrently starts `flowforge-worker` to consume background tasks.
-7. Builds and launches `flowforge-frontend` serving the Next.js dashboard on port `3000`.
+7. Launches `flowforge-frontend` serving the Next.js dashboard on port `3000`.
 
 ---
 

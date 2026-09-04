@@ -19,7 +19,7 @@ This roadmap tracks the development progression of FlowForge across all 12 core 
 | **M9** | **Docker Compose Stack** | Unified multi-container deployment orchestrating PostgreSQL 16, Redis 7, FastAPI, Celery Worker, and Next.js with health checks. | `Completed` |
 | **M10** | **Automated Tests & CI** | Comprehensive `pytest` backend test suite (93% coverage) and `jest` frontend suite running in GitHub Actions. | `Completed` |
 | **DOCS** | **Documentation Suite** | Scannable, verified documentation covering tutorials, guides, references, and architectural explanations. | `Completed` |
-| **M11** | **Production Cloud Deployment** | Cloud infrastructure provisioning, container registry publishing, production secrets management, and automated deploy workflows. | `Not Started` |
+| **M11** | **Production Cloud Deployment** | Automated Docker Hub image publishing (Complete); Cloud infrastructure provisioning and live deploy hooks (Pending). | `In Progress` |
 | **M12** | **Load Testing & Benchmarking** | High-concurrency worker stress testing, Redis queue saturation benchmarks, and database bottleneck profiling. | `Not Started` |
 
 ---

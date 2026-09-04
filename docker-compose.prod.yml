@@ -1,5 +1,6 @@
 # FlowForge Distributed Job-Processing Platform
-# Unified Multi-Container Architecture (Milestone 9)
+# Standalone Production Compose File (Pre-built Docker Hub Images)
+# No source code build dependencies required.
 
 name: flowforge
 
@@ -42,9 +43,6 @@ services:
 
   backend:
     image: arpanpramanik2003/flowforge-backend:latest
-    build:
-      context: ../backend
-      dockerfile: Dockerfile
     container_name: flowforge-backend
     restart: unless-stopped
     ports:
@@ -67,9 +65,6 @@ services:
 
   worker:
     image: arpanpramanik2003/flowforge-worker:latest
-    build:
-      context: ..
-      dockerfile: worker/Dockerfile
     container_name: flowforge-worker
     restart: unless-stopped
     environment:
@@ -88,11 +83,6 @@ services:
 
   frontend:
     image: arpanpramanik2003/flowforge-frontend:latest
-    build:
-      context: ../frontend
-      dockerfile: Dockerfile
-      args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     container_name: flowforge-frontend
     restart: unless-stopped
     ports:
