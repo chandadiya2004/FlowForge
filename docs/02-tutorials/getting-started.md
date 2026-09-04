@@ -77,52 +77,85 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 
 ### Step 3: Launch FlowForge
 
-You can launch FlowForge in one of two ways:
+You can launch FlowForge in one of two ways depending on whether you want to run pre-built containers or build local code:
 
-#### Option A: Quick Launch with Pre-Built Docker Hub Images (Fastest)
-If you just want to run FlowForge without building from source, pull the official pre-built production images from Docker Hub:
+#### Option A: Quick Launch with Pre-Built Docker Hub Images (Fastest — Ready in ~30s)
+> **Recommended for:** Quick evaluations, demoing, or running FlowForge without needing compilers, Node.js, or Python on your computer.
 
 ```bash
 docker compose -f docker-compose.prod.yml up -d
 ```
-*This downloads the lightweight pre-built images (`arpanpramanik2003/flowforge-backend`, `arpanpramanik2003/flowforge-worker`, `arpanpramanik2003/flowforge-frontend`) directly from Docker Hub and starts the full stack in under 30 seconds.*
+
+**What Docker Does & Expected Terminal Output:**
+Docker contacts Docker Hub, downloads the pre-built images for your architecture, provisions the isolated network and volumes, and boots all five services:
+
+```text
+[+] Running 8/8
+ ✔ Network flowforge_network             Created
+ ✔ Volume "flowforge_postgres_data"      Created
+ ✔ Volume "flowforge_redis_data"         Created
+ ✔ Container flowforge-postgres          Healthy
+ ✔ Container flowforge-redis             Healthy
+ ✔ Container flowforge-backend           Started
+ ✔ Container flowforge-worker            Started
+ ✔ Container flowforge-frontend          Started
+```
+
+---
 
 #### Option B: Build from Source (For Developers & Contributors)
-If you want to modify source code and build local container images:
+> **Recommended for:** Anyone modifying backend Python code, Celery worker tasks, or Next.js frontend pages.
 
 ```bash
 docker compose -f infrastructure/docker-compose.yml up --build -d
 ```
 
-#### What Docker Compose Does During Startup:
-1. Creates the custom bridge network: `flowforge_network`.
-2. Provisions persistent Docker volumes: `flowforge_postgres_data` and `flowforge_redis_data`.
-3. Starts `flowforge-postgres` and `flowforge-redis`.
-4. Executes health checks (`pg_isready` and `redis-cli ping`).
-5. Once healthy, launches `flowforge-backend`. The backend automatically runs `alembic upgrade head` to apply all database migrations before launching Uvicorn on port `8000`.
-6. Concurrently starts `flowforge-worker` to consume background tasks.
-7. Launches `flowforge-frontend` serving the Next.js dashboard on port `3000`.
+**What Docker Does & Expected Terminal Output:**
+The `--build` flag instructs Docker to read `backend/Dockerfile`, `worker/Dockerfile`, and `frontend/Dockerfile`, copy your local code, install dependencies, compile the Next.js production bundle, and start all containers:
+
+```text
+[+] Building 35.2s (32/32) FINISHED
+ => [backend internal] load build definition from Dockerfile
+ => [worker internal] load build definition from Dockerfile
+ => [frontend internal] load build definition from Dockerfile
+ => => transferring dockerfile: 520B
+...
+[+] Running 8/8
+ ✔ Network flowforge_network             Created
+ ✔ Volume "flowforge_postgres_data"      Created
+ ✔ Volume "flowforge_redis_data"         Created
+ ✔ Container flowforge-postgres          Healthy
+ ✔ Container flowforge-redis             Healthy
+ ✔ Container flowforge-backend           Started
+ ✔ Container flowforge-worker            Started
+ ✔ Container flowforge-frontend          Started
+```
 
 ---
 
-### Step 4: Confirm All Containers Are Healthy
+### Step 4: Confirm All Containers Are Running & Healthy
 
-Check the operational state of the running services:
+Verify the status of all five services:
 
 ```bash
+# If you launched Option A:
+docker compose -f docker-compose.prod.yml ps
+
+# If you launched Option B:
 docker compose -f infrastructure/docker-compose.yml ps
 ```
 
-You should see output similar to the following, confirming that all five services are running and healthy:
+**Expected Output:**
+```text
+NAME                 IMAGE                                         SERVICE    STATUS
+flowforge-postgres   postgres:16-alpine                            postgres   Up (healthy)
+flowforge-redis      redis:7-alpine                                redis      Up (healthy)
+flowforge-backend    arpanpramanik2003/flowforge-backend:latest    backend    Up
+flowforge-worker     arpanpramanik2003/flowforge-worker:latest     worker     Up
+flowforge-frontend   arpanpramanik2003/flowforge-frontend:latest   frontend   Up
+```
 
-```
-NAME                 IMAGE                     COMMAND                  SERVICE    STATUS
-flowforge-postgres   postgres:16-alpine        "docker-entrypoint.s…"   postgres   Up (healthy)
-flowforge-redis      redis:7-alpine            "docker-entrypoint.s…"   redis      Up (healthy)
-flowforge-backend    infrastructure-backend    "/app/entrypoint.sh …"   backend    Up
-flowforge-worker     infrastructure-worker     "/app/entrypoint.sh …"   worker     Up
-flowforge-frontend   infrastructure-frontend   "npm run start"          frontend   Up
-```
+All five services should report `Up`. If `flowforge-postgres` and `flowforge-redis` display `(healthy)`, the system is ready to process traffic.
 
 ---
 

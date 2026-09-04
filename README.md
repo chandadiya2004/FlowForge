@@ -64,31 +64,116 @@ Running background tasks with unmanaged shell scripts or naive cron jobs creates
 
 ---
 
-## ⚡ Quick Start: Running on Any Machine
+## ⚡ Quick Start: Setup from Scratch on Any Machine
 
-You can run FlowForge immediately on any machine with Docker Desktop installed:
+Choose the setup method that matches your goal:
 
-### Option A: Run Pre-Built Docker Hub Images (Fastest — Ready in 30s)
-No compilers, Python, or Node.js required. Pulls official published images directly from Docker Hub:
+---
 
+### Option A: Run Pre-Built Images from Docker Hub (Fastest — Ready in ~30s)
+> **Best for:** Anyone who wants to evaluate, test, or run FlowForge immediately without installing Python, Node.js, or building container images locally.
+
+#### 1. Clone the repository & enter directory:
 ```bash
-# 1. Clone repo and enter directory
 git clone https://github.com/chandadiya2004/FlowForge.git
 cd FlowForge
+```
 
-# 2. Configure environment template
+#### 2. Copy the environment template:
+```bash
+# On Linux / macOS / Git Bash:
 cp infrastructure/.env.example infrastructure/.env
 
-# 3. Launch the pre-built stack
+# On Windows (PowerShell):
+Copy-Item infrastructure/.env.example infrastructure/.env
+```
+
+#### 3. Launch the pre-built stack:
+```bash
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-### Option B: Build from Source (For Local Code Development)
+**Expected Terminal Output:**
+```text
+[+] Running 8/8
+ ✔ Network flowforge_network             Created
+ ✔ Volume "flowforge_postgres_data"      Created
+ ✔ Volume "flowforge_redis_data"         Created
+ ✔ Container flowforge-postgres          Healthy
+ ✔ Container flowforge-redis             Healthy
+ ✔ Container flowforge-backend           Started
+ ✔ Container flowforge-worker            Started
+ ✔ Container flowforge-frontend          Started
+```
+
+---
+
+### Option B: Build from Source (For Developers & Code Contributors)
+> **Best for:** Developers who plan to modify backend routes, Celery tasks, or the Next.js frontend and want Docker to compile local code into fresh container images.
+
+#### 1. Clone the repository & enter directory:
+```bash
+git clone https://github.com/chandadiya2004/FlowForge.git
+cd FlowForge
+```
+
+#### 2. Copy the environment template:
+```bash
+# On Linux / macOS / Git Bash:
+cp infrastructure/.env.example infrastructure/.env
+
+# On Windows (PowerShell):
+Copy-Item infrastructure/.env.example infrastructure/.env
+```
+
+#### 3. Build local source code and launch all containers:
 ```bash
 docker compose -f infrastructure/docker-compose.yml up --build -d
 ```
+*(The `--build` flag tells Docker to package your local `backend/`, `worker/`, and `frontend/` files into new images right on your computer).*
 
-Once running, access the services:
+**Expected Terminal Output:**
+```text
+[+] Building 35.2s (32/32) FINISHED
+ => [backend internal] load build definition from Dockerfile
+ => [worker internal] load build definition from Dockerfile
+ => [frontend internal] load build definition from Dockerfile
+...
+[+] Running 8/8
+ ✔ Network flowforge_network             Created
+ ✔ Volume "flowforge_postgres_data"      Created
+ ✔ Volume "flowforge_redis_data"         Created
+ ✔ Container flowforge-postgres          Healthy
+ ✔ Container flowforge-redis             Healthy
+ ✔ Container flowforge-backend           Started
+ ✔ Container flowforge-worker            Started
+ ✔ Container flowforge-frontend          Started
+```
+
+---
+
+### 4. Verify & Open FlowForge
+
+Check that all 5 containers are running and healthy:
+```bash
+# For Option A:
+docker compose -f docker-compose.prod.yml ps
+
+# For Option B:
+docker compose -f infrastructure/docker-compose.yml ps
+```
+
+**Expected Output:**
+```text
+NAME                 IMAGE                                         STATUS
+flowforge-postgres   postgres:16-alpine                            Up (healthy)
+flowforge-redis      redis:7-alpine                                Up (healthy)
+flowforge-backend    arpanpramanik2003/flowforge-backend:latest    Up
+flowforge-worker     arpanpramanik2003/flowforge-worker:latest     Up
+flowforge-frontend   arpanpramanik2003/flowforge-frontend:latest   Up
+```
+
+Once running, access the services in your browser:
 
 | Service | Endpoint | Purpose |
 | :--- | :--- | :--- |
@@ -98,7 +183,7 @@ Once running, access the services:
 | **Health Check** | [`http://localhost:8000/health`](http://localhost:8000/health) | Container & monitoring liveness probe |
 
 > [!TIP]
-> For step-by-step onboarding, account registration, and troubleshooting, read the **[Getting Started Tutorial](docs/02-tutorials/getting-started.md)**.
+> For detailed troubleshooting, local host setup without Docker, and architecture diagrams, read the **[Getting Started Tutorial](docs/02-tutorials/getting-started.md)**.
 
 ---
 
