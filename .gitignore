@@ -12,7 +12,7 @@ node_modules/
 !.env.example
 *.db
 *.sqlite3
-
+.agents/
 
 # Python
 __pycache__/
