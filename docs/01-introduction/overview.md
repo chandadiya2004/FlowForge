@@ -48,12 +48,12 @@ flowchart TD
     WebUI -->|2. POST /workflows & POST /jobs/:id/trigger| APIServer[FastAPI Control Plane]:::api
     
     subgraph ControlPlane [Control Plane & State Persistence]
-        APIServer -->|3. Validate RBAC & Schema| AuthGuard[JWT / RBAC Guard]:::api
-        APIServer -->|4. Persist Job & Tasks| PostgresDB[(PostgreSQL 16\nSystem of Record)]:::storage
-        APIServer -->|5. Priority Mapping\n1-3: high | 4-7: default | 8-10: low| PriorityRouter[Queue Router]:::api
+        APIServer -->|"3. Validate RBAC and Schema"| AuthGuard[JWT / RBAC Guard]:::api
+        APIServer -->|"4. Persist Job and Tasks"| PostgresDB[("PostgreSQL 16<br>System of Record")]:::storage
+        APIServer -->|"5. Priority Mapping (high, default, low)"| PriorityRouter[Queue Router]:::api
     end
 
-    PriorityRouter -->|6. Asynchronous Dispatch\nexecute_task| RedisBroker[(Redis 7 Broker\nQueues: high, default, low)]:::broker
+    PriorityRouter -->|"6. Asynchronous Dispatch (execute_task)"| RedisBroker[("Redis 7 Broker<br>Queues: high, default, low")]:::broker
 
     subgraph ExecutionPlane [Distributed Execution Plane]
         RedisBroker -->|7. Dequeue by Priority Tier| WorkerPool[Celery Worker Cluster]:::worker
