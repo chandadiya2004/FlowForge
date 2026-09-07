@@ -1,8 +1,80 @@
-# Understanding Docker in FlowForge
+# Tutorial: Understanding Docker in FlowForge
 
-If you have used Docker Desktop to start applications with `docker compose up`, but are still fuzzy on how images, containers, networks, and volumes interact behind the scenes, this tutorial is for you.
+**What you will learn**:
+- How images, containers, bridge networks, and named volumes interact in a real-world multi-service architecture.
+- How Docker's embedded DNS server facilitates inter-container communication without hardcoded IP addresses.
+- The critical difference between host port publishing (`ports:`) and container-only communication.
+- Why named volumes guarantee data durability across container updates and restarts.
+- How healthcheck-driven dependency gating (`condition: service_healthy`) prevents startup race conditions.
+- A comprehensive, line-by-line operational breakdown of [infrastructure/docker-compose.yml](file:///d:/Edutation(P)/FlowForge/infrastructure/docker-compose.yml).
 
-We will use FlowForge's actual `infrastructure/docker-compose.yml` file as our real-world blueprint to explain exactly what Docker does under the hood when coordinating multi-service architectures.
+---
+
+## Architectural Topology: How Docker Coordinates FlowForge
+
+The diagram below illustrates how Docker Desktop isolates containers, mounts persistent host storage, and facilitates internal and external traffic across virtual bridge networks:
+
+```mermaid
+%%{init: {
+  'theme': 'dark',
+  'themeVariables': {
+    'darkMode': true,
+    'background': '#0b0f19',
+    'mainBkg': '#0f172a',
+    'primaryColor': '#1e293b',
+    'primaryTextColor': '#f8fafc',
+    'primaryBorderColor': '#38bdf8',
+    'lineColor': '#94a3b8',
+    'secondaryColor': '#0f172a',
+    'tertiaryColor': '#1e293b'
+  }
+}}%%
+flowchart TB
+    classDef host fill:#0b0f19,stroke:#64748b,stroke-width:1.5px,color:#f8fafc;
+    classDef client fill:#0c4a6e,stroke:#38bdf8,stroke-width:2px,color:#f0f9ff;
+    classDef api fill:#312e81,stroke:#818cf8,stroke-width:2px,color:#e0e7ff;
+    classDef broker fill:#7f1d1d,stroke:#f87171,stroke-width:2px,color:#fef2f2;
+    classDef worker fill:#064e3b,stroke:#34d399,stroke-width:2px,color:#ecfdf5;
+    classDef volume fill:#581c87,stroke:#c084fc,stroke-width:2px,color:#faf5ff;
+
+    subgraph HostSystem["Physical Host Machine (Your Laptop / Server)"]
+        Browser["Host Browser / Developer CLI"]:::client
+
+        subgraph DockerBridge["Virtual Bridge Network: flowforge_network"]
+            Frontend["flowforge-frontend\n(:3000 inside container)"]:::client
+            Backend["flowforge-backend\n(:8000 inside container)"]:::api
+            Worker["flowforge-worker\n(No Exposed Host Ports)"]:::worker
+            Postgres["flowforge-postgres\n(:5432 inside container)"]:::volume
+            Redis["flowforge-redis\n(:6379 inside container)"]:::broker
+        end
+
+        subgraph NamedVolumes["Host Disk Storage (Named Volumes)"]
+            VolPostgres[("flowforge_postgres_data\n(Mounted to /var/lib/postgresql/data)")]:::volume
+            VolRedis[("flowforge_redis_data\n(Mounted to /data)")]:::broker
+        end
+    end
+
+    %% Port Forwarding
+    Browser -->|"Port Tunnel :3000:3000"| Frontend
+    Browser -->|"Port Tunnel :8000:8000"| Backend
+    Browser -.->|"Optional Debug :5432:5432"| Postgres
+    Browser -.->|"Optional Debug :6379:6379"| Redis
+
+    %% Internal DNS Resolution
+    Frontend -->|"Internal DNS http://backend:8000"| Backend
+    Backend -->|"Internal DNS postgres:5432"| Postgres
+    Backend -->|"Internal DNS redis:6379"| Redis
+    Worker -->|"Internal DNS redis:6379 (BRPOP)"| Redis
+    Worker -->|"Internal DNS postgres:5432 (SQLAlchemy)"| Postgres
+
+    %% Volume Mounts
+    Postgres <-->|"Persistent ACID Writes"| VolPostgres
+    Redis <-->|"Snapshot & ETA Persistence"| VolRedis
+
+    style HostSystem fill:#090d16,stroke:#334155,stroke-width:2px,color:#f8fafc
+    style DockerBridge fill:#0f172a,stroke:#38bdf8,stroke-width:2px,stroke-dasharray: 6 6,color:#e2e8f0
+    style NamedVolumes fill:#0f172a,stroke:#c084fc,stroke-width:1.5px,color:#e2e8f0
+```
 
 ---
 
@@ -10,45 +82,45 @@ We will use FlowForge's actual `infrastructure/docker-compose.yml` file as our r
 
 ### 1. Image vs. Container
 
-- **An Image** is an immutable, read-only blueprint or template containing application code, runtimes, libraries, and environment settings.
-  - Examples in FlowForge: `postgres:16-alpine` downloaded from Docker Hub, or the custom Python image built from `backend/Dockerfile`.
-- **A Container** is a runnable, isolated instance of an image. If an image is a class in programming, a container is an instantiated object running as an isolated process on your computer.
-  - Example in FlowForge: When Compose boots, it instantiates the image into a container named `flowforge-backend`. You can stop, start, destroy, or replicate containers without modifying the underlying image.
+- **An Image** is an immutable, read-only template package containing application code, runtimes, system dependencies, and configuration.
+  - *Examples in FlowForge*: `postgres:16-alpine` downloaded from Docker Hub, or the custom Python image built from `backend/Dockerfile`.
+- **A Container** is an active, running instance of an image. If an image is a compiled class in software design, a container is an instantiated object running in an isolated process namespace on your system.
+  - *Example in FlowForge*: When Docker Compose initializes, it instantiates the backend image into a container named `flowforge-backend`. You can stop, inspect, restart, or destroy this container without altering the underlying image.
 
 ---
 
-### 2. Docker Networks & Service Name DNS
+### 2. Virtual Bridge Networking & Service Discovery (DNS)
 
-When services run on your host machine without Docker, they communicate over `localhost` using distinct port numbers (e.g., `localhost:5432` for Postgres, `localhost:6379` for Redis).
+When services execute directly on your physical host machine without Docker, they communicate over `localhost` using designated port numbers (e.g., `localhost:5432` for Postgres, `localhost:6379` for Redis).
 
-Inside Docker, each container has its own private network namespace and its own internal loopback interface (`localhost`). This means:
-- If `flowforge-backend` tries to connect to `localhost:5432`, it is looking for PostgreSQL **inside the backend container itself**, where no database is running.
-- To allow containers to communicate, Docker provisions an internal virtual **bridge network** (`flowforge-network`).
-- Docker embeds an **automatic DNS resolver**. Within the `flowforge-network`, the container name or service name resolves directly to the internal IP address of that container.
+Within Docker, every container possesses its own isolated network namespace and its own independent loopback interface (`localhost`). Consequently:
+- If `flowforge-backend` attempts to connect to `localhost:5432`, it queries PostgreSQL **inside the backend container itself**, where no database daemon is running.
+- To enable inter-service communication, Docker provisions an isolated virtual **bridge network** (`flowforge_network`).
+- Docker operates an **embedded DNS server** at `127.0.0.11`. Within `flowforge_network`, service names automatically resolve to the internal IP address assigned to that container.
 
-This is why the backend's `DATABASE_URL` in `docker-compose.yml` connects to `@postgres:5432`, not `@localhost:5432`:
+This explains why the database connection string in [infrastructure/docker-compose.yml](file:///d:/Edutation(P)/FlowForge/infrastructure/docker-compose.yml) targets `@postgres:5432`, rather than `@localhost:5432`:
 
 ```ini
-# Inside the container network, 'postgres' resolves to the PostgreSQL container IP:
+# Inside the container network, 'postgres' resolves via Docker DNS to the Postgres container IP:
 DATABASE_URL=postgresql://postgres:postgres@postgres:5432/flowforge
 
 # Similarly, 'redis' resolves to the Redis container IP:
 REDIS_URL=redis://redis:6379/0
 ```
 
-#### What `ports:` Actually Does
-You will notice lines like `ports: - "8000:8000"` or `ports: - "3000:3000"`.
-- This is a **host-to-container port mapping** (`host_port:container_port`).
-- It creates a tunnel from your laptop/desktop into the container network so your host browser can reach `http://localhost:3000` or `http://localhost:8000`.
-- Notice that `worker` does **not** expose any ports (`ports:` is absent). The worker only listens to Redis and queries Postgres from inside `flowforge-network`; external traffic from the host never needs to hit the worker directly.
+#### Understanding Port Mapping (`ports:`)
+You will see directives like `ports: - "8000:8000"` or `ports: - "3000:3000"`.
+- This represents a **host-to-container port tunnel** (`<host_port>:<container_port>`).
+- It forwards inbound network requests from your laptop (`http://localhost:3000` or `http://localhost:8000`) into the internal container bridge network.
+- **Notice that `worker` does not publish any ports**: Because the Celery worker only dequeues tasks from Redis and writes state to PostgreSQL internally within `flowforge_network`, it never receives inbound HTTP traffic from your host computer.
 
 ---
 
-### 3. Named Volumes: Data Persistence
+### 3. Named Volumes & Data Durability
 
-Containers are ephemeral by default. If you write files inside a container's filesystem and then destroy the container (`docker rm`), those files vanish permanently.
+Containers are stateless and ephemeral by default. If a container writes files to its root filesystem and is subsequently deleted (`docker rm`), all newly written data is permanently lost.
 
-A database, however, must retain its data across container restarts, rebuilds, and code updates. FlowForge accomplishes this using **Docker Named Volumes**:
+A database, however, must preserve its records across container upgrades, code rebuilds, and operating system reboots. FlowForge guarantees durability using **Docker Named Volumes**:
 
 ```yaml
 volumes:
@@ -58,28 +130,28 @@ volumes:
     name: flowforge_redis_data
 ```
 
-Inside the `postgres` service definition:
+Inside the PostgreSQL service definition:
 ```yaml
 volumes:
   - postgres_data:/var/lib/postgresql/data
 ```
 
-#### How Volumes Work:
-- Docker mounts a dedicated, managed directory on your physical host drive into `/var/lib/postgresql/data` inside the PostgreSQL container.
-- **`docker compose down`**: Stops and removes the containers and network, but **leaves the volumes untouched**. When you run `docker compose up` tomorrow, your workflows, jobs, and user accounts are still there.
-- **`docker compose down -v`**: The `-v` (volumes) flag explicitly instructs Docker to **destroy the named volumes**. Use this when you want a completely fresh database, but remember it permanently wipes all local data!
+#### Volume Lifecycle Guarantees:
+- Docker mounts a persistent, managed directory on your physical hard drive into `/var/lib/postgresql/data` inside the PostgreSQL container.
+- **`docker compose down`**: Halts and removes the containers and network, but **leaves named volumes completely intact**. When you launch FlowForge tomorrow, all user accounts, workflows, and historical execution records remain preserved.
+- **`docker compose down -v`**: The `-v` flag instructs Docker to **permanently purge named volumes**. Use this command only when you deliberately intend to reset the database and queue to an empty state.
 
 ---
 
-### 4. `depends_on` + `healthcheck`
+### 4. Health Checks & Startup Dependency Gating
 
-In distributed systems, start order matters, but **service readiness** matters even more.
+In distributed systems, simple startup sequencing is insufficient—**service readiness** is critical.
 
-A common pitfall in Docker Compose is using a basic `depends_on: [postgres]`. A standard `depends_on` only waits for Docker to create the container process; it does not wait for PostgreSQL to finish loading its tables and start accepting connections. If the backend starts immediately, its startup script (`alembic upgrade head`) will crash with a connection refused error.
+A common architectural vulnerability in Docker Compose is relying on basic `depends_on: [postgres]`. A basic `depends_on` only verifies that Docker has spawned the container process; it does not wait for PostgreSQL to finish loading its storage engine or accepting incoming TCP connections. If the backend boots instantly, its startup migration script (`alembic upgrade head`) will crash with a connection refused error.
 
-FlowForge solves this with **Active Health Checks**:
+FlowForge eliminates this race condition using **Active Health Checks**:
 
-#### 1. Define the health check in PostgreSQL:
+#### 1. Define the health check probe in PostgreSQL:
 ```yaml
 healthcheck:
   test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-flowforge}"]
@@ -87,9 +159,9 @@ healthcheck:
   timeout: 5s
   retries: 5
 ```
-Every 5 seconds, Docker runs `pg_isready` inside the Postgres container. Once the database responds that it is accepting queries, Docker marks the container status as `(healthy)`.
+Every 5 seconds, Docker executes `pg_isready` inside the container. Once PostgreSQL responds that it is accepting queries, Docker updates the container status to `(healthy)`.
 
-#### 2. Gate downstream services on that health status:
+#### 2. Gate downstream services on verified health:
 ```yaml
 backend:
   depends_on:
@@ -98,52 +170,52 @@ backend:
     redis:
       condition: service_healthy
 ```
-Now, Docker Compose will deliberately pause the `backend` and `worker` containers until PostgreSQL and Redis report `service_healthy`. Only then does the backend execute database migrations and boot Uvicorn.
+Docker Compose intentionally delays booting `flowforge-backend` and `flowforge-worker` until both `postgres` and `redis` report `service_healthy`. This guarantees database migrations and Celery queue connections initialize reliably on the first attempt.
 
 ---
 
 ## Line-by-Line Breakdown of `infrastructure/docker-compose.yml`
 
-Here is how FlowForge configures every service in `infrastructure/docker-compose.yml`:
+Below is an annotated walkthrough of FlowForge's production-ready Docker Compose configuration:
 
 ```yaml
 name: flowforge
 
 services:
   # -------------------------------------------------------------
-  # 1. PostgreSQL Database Service
+  # 1. PostgreSQL Relational System of Record
   # -------------------------------------------------------------
   postgres:
-    image: postgres:16-alpine           # Lightweight official PostgreSQL 16 image based on Alpine Linux
-    container_name: flowforge-postgres # Predictable container name instead of auto-generated hash
-    restart: unless-stopped            # Automatically restarts container if it crashes or Docker reboots
+    image: postgres:16-alpine           # Minimalist Alpine Linux base image (~80MB)
+    container_name: flowforge-postgres # Explicit container name for deterministic logging
+    restart: unless-stopped            # Automatically restarts container on system reboot or process crash
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}         # Database superuser (reads from .env or defaults to postgres)
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}         # Database superuser (defaults to postgres)
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres} # Database password
-      POSTGRES_DB: ${POSTGRES_DB:-flowforge}            # Database created automatically on initial startup
+      POSTGRES_DB: ${POSTGRES_DB:-flowforge}            # Database created automatically on initial boot
     ports:
-      - "5432:5432"                    # Exposes port 5432 to your host (useful for pgAdmin or psql)
+      - "5432:5432"                    # Exposes port 5432 to host for psql / pgAdmin debugging
     volumes:
-      - postgres_data:/var/lib/postgresql/data # Persists DB data outside the container
+      - postgres_data:/var/lib/postgresql/data # Persists relational data to named host volume
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-flowforge}"]
       interval: 5s
       timeout: 5s
       retries: 5
     networks:
-      - flowforge-network              # Joins the shared internal bridge network
+      - flowforge-network              # Attaches to isolated virtual bridge network
 
   # -------------------------------------------------------------
-  # 2. Redis Message Broker Service
+  # 2. Redis In-Memory Message Broker & Result Store
   # -------------------------------------------------------------
   redis:
-    image: redis:7-alpine              # Lightweight official Redis 7 image
+    image: redis:7-alpine              # Ultra-fast in-memory key-value broker
     container_name: flowforge-redis
     restart: unless-stopped
     ports:
       - "6379:6379"                    # Exposes port 6379 to host
     volumes:
-      - redis_data:/data               # Persists queue and result data across restarts
+      - redis_data:/data               # Persists queue backups and Celery ETA countdown metadata
     healthcheck:
       test: ["CMD", "redis-cli", "ping"] # Pings Redis; expects PONG
       interval: 5s
@@ -153,18 +225,19 @@ services:
       - flowforge-network
 
   # -------------------------------------------------------------
-  # 3. FastAPI Backend Control Plane
+  # 3. FastAPI Synchronous Control Plane & REST Engine
   # -------------------------------------------------------------
   backend:
+    image: arpanpramanik2003/flowforge-backend:latest
     build:
-      context: ../backend              # Build directory containing backend source code
-      dockerfile: Dockerfile           # Uses backend/Dockerfile (Python 3.11-slim)
+      context: ../backend              # Context directory containing backend source code
+      dockerfile: Dockerfile           # Compiles Python 3.11-slim runtime image
     container_name: flowforge-backend
     restart: unless-stopped
     ports:
       - "8000:8000"                    # Exposes REST API to host at http://localhost:8000
     environment:
-      # Injected connection string using Docker DNS 'postgres' and 'redis'
+      # Connection strings utilizing Docker DNS names 'postgres' and 'redis'
       - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-flowforge}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
       - JWT_SECRET=${JWT_SECRET:-flowforge_default_secret_key_change_in_production}
@@ -174,18 +247,19 @@ services:
       - RETRY_MAX_DELAY_SECONDS=${RETRY_MAX_DELAY_SECONDS:-300.0}
     depends_on:
       postgres:
-        condition: service_healthy     # Waits for PostgreSQL to accept SQL queries
+        condition: service_healthy     # Delays startup until PostgreSQL is accepting SQL queries
       redis:
-        condition: service_healthy     # Waits for Redis to respond to PING
+        condition: service_healthy     # Delays startup until Redis responds to PING
     networks:
       - flowforge-network
 
   # -------------------------------------------------------------
-  # 4. Celery Background Worker Service
+  # 4. Celery Distributed Worker Engine
   # -------------------------------------------------------------
   worker:
+    image: arpanpramanik2003/flowforge-worker:latest
     build:
-      context: ..                      # Context is repo root so worker can access shared backend models
+      context: ..                      # Context set to root so worker accesses backend models
       dockerfile: worker/Dockerfile
     container_name: flowforge-worker
     restart: unless-stopped
@@ -204,14 +278,15 @@ services:
       - flowforge-network
 
   # -------------------------------------------------------------
-  # 5. Next.js Frontend Dashboard Service
+  # 5. Next.js Administrative Web Dashboard
   # -------------------------------------------------------------
   frontend:
+    image: arpanpramanik2003/flowforge-frontend:latest
     build:
       context: ../frontend
       dockerfile: Dockerfile
       args:
-        # Build argument baked into Next.js client bundle for browser API calls
+        # Baked into client-side JS bundle for host browser API communication
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     container_name: flowforge-frontend
     restart: unless-stopped
@@ -220,17 +295,17 @@ services:
     environment:
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     depends_on:
-      - backend                        # Waits for backend container to start
+      - backend                        # Waits for backend container to spawn
     networks:
       - flowforge-network
 
 # ---------------------------------------------------------------
-# Shared Network & Storage Topologies
+# Network & Storage Volume Declarations
 # ---------------------------------------------------------------
 networks:
   flowforge-network:
     name: flowforge_network
-    driver: bridge                     # Isolated virtual bridge network on the Docker host
+    driver: bridge                     # Host-isolated software bridge network
 
 volumes:
   postgres_data:
@@ -243,14 +318,26 @@ volumes:
 
 ## Essential Docker Commands Reference
 
-Here is a reference table of the primary commands used to operate FlowForge:
+The following table summarizes the primary CLI commands used to manage FlowForge:
 
-| Command | What It Does | When to Use It |
+| Command | What It Accomplishes | Recommended Scenario |
 | :--- | :--- | :--- |
-| `docker compose -f infrastructure/docker-compose.yml up --build -d` | Builds missing/updated images and starts all 5 containers in the background (detached mode). | First time running FlowForge, or after modifying code/Dockerfiles. |
-| `docker compose -f infrastructure/docker-compose.yml ps` | Displays the status and health check state of all containers in the stack. | To verify whether containers are `Up (healthy)`. |
-| `docker compose -f infrastructure/docker-compose.yml logs -f <service>` | Streams live logs from a specific service (e.g. `backend` or `worker`). | When debugging API requests, task retries, or execution errors. |
-| `docker compose -f infrastructure/docker-compose.yml exec -it <service> <cmd>` | Executes an interactive command inside a running container. | To run database queries (`psql`), check Redis (`redis-cli`), or inspect files. |
-| `docker compose -f infrastructure/docker-compose.yml restart <service>` | Restarts a single container without restarting the rest of the stack. | To reload the backend or worker after editing local environment variables. |
-| `docker compose -f infrastructure/docker-compose.yml down` | Stops and removes containers and networks while preserving volume data. | Routine end of a development session. |
-| `docker compose -f infrastructure/docker-compose.yml down -v` | Stops containers, removes networks, and **destroys all persistent volumes**. | To completely wipe the database and start with a fresh slate. |
+| `docker compose -f infrastructure/docker-compose.yml up --build -d` | Compiles local Dockerfiles and launches all 5 containers in the background. | First-time setup, or after editing Python/Next.js source files. |
+| `docker compose -f infrastructure/docker-compose.yml ps` | Displays container run states, mapped ports, and healthcheck status. | Routine verification that containers are `Up (healthy)`. |
+| `docker compose -f infrastructure/docker-compose.yml logs -f <service>` | Streams live standard output and error logs from a specified service. | Debugging API exceptions, worker errors, or retry countdown delays. |
+| `docker compose -f infrastructure/docker-compose.yml exec -it <service> <cmd>` | Executes an interactive shell command directly inside a running container. | Running ad-hoc SQL via `psql`, checking Redis via `redis-cli`, or inspecting files. |
+| `docker compose -f infrastructure/docker-compose.yml restart <service>` | Cycles a single container without taking down sibling services. | Applying updated `.env` configuration variables to backend or worker. |
+| `docker compose -f infrastructure/docker-compose.yml down` | Gracefully stops and destroys containers and bridge networks while preserving volume data. | Routine end of a development session. |
+| `docker compose -f infrastructure/docker-compose.yml down -v` | Destroys containers, networks, **and deletes all persistent database volumes**. | Resetting the platform to a completely pristine, empty state. |
+
+---
+
+## Next Steps
+
+Deepen your understanding of FlowForge's distributed architecture with these resources:
+
+1. [Getting Started Tutorial](getting-started.md) — 5-minute practical onboarding walkthrough using Docker Compose.
+2. [First Workflow Walkthrough](first-workflow-walkthrough.md) — Step-by-step tutorial building a resilient multi-step pipeline with retries and dead-letter handling.
+3. [System Architecture & Topologies](../01-introduction/architecture-diagram.md) — Multi-container networking, protocol matrices, and state transitions.
+4. [Technology Stack Architecture](../01-introduction/tech-stack.md) — Architectural analysis of FastAPI, Celery, PostgreSQL, Redis, and Next.js.
+5. [Deploying to Production How-To](../03-how-to-guides/deploying-to-production.md) — Production container orchestration, resource limits, and secrets management.
