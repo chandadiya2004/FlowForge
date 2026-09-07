@@ -1,19 +1,56 @@
-# Getting Started
+# Tutorial: Get Started with FlowForge in 5 Minutes
 
-This guide walks you through setting up and running FlowForge from scratch using Docker Compose. By the end of this tutorial, you will have all five services—PostgreSQL, Redis, the FastAPI backend, the Celery background worker, and the Next.js dashboard—running locally and verified.
+**What you will build**: A fully functional, locally orchestrated FlowForge distributed task-processing cluster running PostgreSQL 16, Redis 7, the FastAPI backend control plane, the Celery background worker, and the Next.js 16 dashboard.
+
+**What you will learn**:
+- How to clone the repository and configure environment variables.
+- How to launch the multi-container architecture using Docker Compose.
+- How container startup dependency gates and healthchecks ensure clean initialization.
+- How to verify system health across the REST API, OpenAPI docs, and worker logs.
+- How to diagnose and resolve common first-run port and network issues.
+
+**Prerequisites**:
+- [x] **Docker Desktop 4.25+** (Docker Engine 24+, Docker Compose v2) installed and running.
+- [x] **Git 2.30+** installed.
+- [x] Ports `3000` (Frontend), `8000` (Backend API), `5432` (Postgres), and `6379` (Redis) free on your host.
 
 ---
 
-## Prerequisites
+## Container Startup & Dependency Topology
 
-Before starting, ensure you have the following tools installed on your host machine:
+When you boot FlowForge, Docker Compose enforces healthcheck dependency ordering: the PostgreSQL and Redis containers must report healthy before the backend runs database migrations and the worker engine registers priority queues:
 
-| Tool | Recommended Version | Why It Is Needed |
-| :--- | :--- | :--- |
-| **Docker Desktop** | 4.25+ (Docker Engine 24+, Compose v2) | Runs all five FlowForge services in isolated containers with configured networking and health checks. You do not need PostgreSQL, Redis, or Celery installed natively. |
-| **Git** | 2.30+ | Required to clone the FlowForge repository and manage branch checkouts. |
-| **Node.js** *(Optional)* | 18+ or 20+ LTS | Only needed if you plan to run frontend development servers or the Jest test suite natively on your host machine outside Docker. |
-| **Python** *(Optional)* | 3.11+ | Only needed if you plan to execute backend unit tests (`pytest`) or run database migrations natively on your host machine outside Docker. |
+```mermaid
+%%{init: {
+  'theme': 'dark',
+  'themeVariables': {
+    'darkMode': true,
+    'background': '#0b0f19',
+    'mainBkg': '#0f172a',
+    'primaryColor': '#1e293b',
+    'primaryTextColor': '#f8fafc',
+    'primaryBorderColor': '#38bdf8',
+    'lineColor': '#94a3b8'
+  }
+}}%%
+flowchart TD
+    classDef infra fill:#581c87,stroke:#c084fc,stroke-width:2px,color:#faf5ff;
+    classDef broker fill:#7f1d1d,stroke:#f87171,stroke-width:2px,color:#fef2f2;
+    classDef app fill:#312e81,stroke:#818cf8,stroke-width:2px,color:#e0e7ff;
+    classDef worker fill:#064e3b,stroke:#34d399,stroke-width:2px,color:#ecfdf5;
+    classDef ui fill:#0c4a6e,stroke:#38bdf8,stroke-width:2px,color:#f0f9ff;
+
+    Start([docker compose up]):::ui --> Network["Create flowforge_network & Volumes\n(flowforge_postgres_data, flowforge_redis_data)"]:::infra
+    Network --> Postgres["flowforge-postgres (:5432)\n(pg_isready Healthcheck)"]:::infra
+    Network --> Redis["flowforge-redis (:6379)\n(redis-cli ping Healthcheck)"]:::broker
+
+    Postgres -->|service_healthy| Backend["flowforge-backend (:8000)\n(FastAPI & Alembic Migrations)"]:::app
+    Redis -->|service_healthy| Backend
+    Postgres -->|service_healthy| Worker["flowforge-worker\n(Celery 5 Engine: high, default, low)"]:::worker
+    Redis -->|service_healthy| Worker
+
+    Backend -->|depends_on: backend| Frontend["flowforge-frontend (:3000)\n(Next.js 16 App Router UI)"]:::ui
+```
 
 ---
 
@@ -21,7 +58,7 @@ Before starting, ensure you have the following tools installed on your host mach
 
 ### Step 1: Clone the Repository
 
-Clone the FlowForge repository to your local machine and navigate into the root directory:
+Clone the FlowForge repository to your local workstation and change into the project root:
 
 ```bash
 git clone https://github.com/chandadiya2004/FlowForge.git
@@ -32,9 +69,9 @@ cd FlowForge
 
 ### Step 2: Configure Environment Variables
 
-FlowForge uses environment variables to manage database credentials, JWT secrets, network origins, and backoff timeouts.
+FlowForge uses environment variables to configure database connection strings, JWT signing keys, CORS origins, and exponential backoff retry caps.
 
-Copy the template from `infrastructure/.env.example` to create `infrastructure/.env`:
+Create your local `.env` file from the provided example template:
 
 ```bash
 # On Linux / macOS / Git Bash
@@ -44,23 +81,23 @@ cp infrastructure/.env.example infrastructure/.env
 Copy-Item infrastructure/.env.example infrastructure/.env
 ```
 
-Open `infrastructure/.env` in your text editor. For local development, the default values are pre-configured to work out of the box:
+Open `infrastructure/.env` in your text editor. The default values are pre-tuned for seamless local development:
 
 ```ini
-# PostgreSQL Database
+# PostgreSQL Relational System of Record
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=postgres
 POSTGRES_DB=flowforge
 
-# Redis Broker
+# Redis Broker & Result Backend
 REDIS_URL=redis://redis:6379/0
 
-# Security & Authentication
-JWT_SECRET=flowforge_super_secret_jwt_key_change_in_production
+# Security & Stateless Authentication
+JWT_SECRET=flowforge_default_secret_key_change_in_production
 JWT_EXPIRE_MINUTES=60
 CORS_ORIGINS=http://localhost:3000
 
-# Retries & Backoff Configuration
+# Exponential Backoff Retry Caps
 RETRY_BASE_DELAY_SECONDS=10.0
 RETRY_MAX_DELAY_SECONDS=300.0
 
@@ -69,25 +106,23 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 ```
 
 > [!TIP]
-> If you decide to change `POSTGRES_PASSWORD` or `POSTGRES_DB`, Docker Compose will automatically propagate those values into the backend and worker service connection strings.
-
----
+> If you customize `POSTGRES_USER`, `POSTGRES_PASSWORD`, or `POSTGRES_DB`, Docker Compose automatically synchronizes those values into the `DATABASE_URL` for both the backend and worker containers.
 
 ---
 
 ### Step 3: Launch FlowForge
 
-You can launch FlowForge in one of two ways depending on whether you want to run pre-built containers or build local code:
+You can launch FlowForge in one of two ways depending on whether you want instant pre-built images or source compilation:
 
-#### Option A: Quick Launch with Pre-Built Docker Hub Images (Fastest — Ready in ~30s)
-> **Recommended for:** Quick evaluations, demoing, or running FlowForge without needing compilers, Node.js, or Python on your computer.
+#### Option A: Quick Launch with Pre-Built Images (~30 Seconds)
+> **Recommended for:** Quick evaluations, product demonstrations, or running FlowForge without compiling Node.js or Python packages locally.
 
 ```bash
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-**What Docker Does & Expected Terminal Output:**
-Docker contacts Docker Hub, downloads the pre-built images for your architecture, provisions the isolated network and volumes, and boots all five services:
+**What Docker Does & Expected Output:**
+Docker pulls the pre-built multi-architecture container images from Docker Hub, provisions the bridge network and named volumes, and boots the cluster:
 
 ```text
 [+] Running 8/8
@@ -103,22 +138,18 @@ Docker contacts Docker Hub, downloads the pre-built images for your architecture
 
 ---
 
-#### Option B: Build from Source (For Developers & Contributors)
-> **Recommended for:** Anyone modifying backend Python code, Celery worker tasks, or Next.js frontend pages.
+#### Option B: Build from Local Source Code
+> **Recommended for:** Anyone modifying backend routes, Celery tasks, or Next.js dashboard UI components.
 
 ```bash
 docker compose -f infrastructure/docker-compose.yml up --build -d
 ```
 
-**What Docker Does & Expected Terminal Output:**
-The `--build` flag instructs Docker to read `backend/Dockerfile`, `worker/Dockerfile`, and `frontend/Dockerfile`, copy your local code, install dependencies, compile the Next.js production bundle, and start all containers:
+**What Docker Does & Expected Output:**
+Docker executes `backend/Dockerfile`, `worker/Dockerfile`, and `frontend/Dockerfile`, compiles the Next.js production build, runs Alembic migrations, and boots the services:
 
 ```text
-[+] Building 35.2s (32/32) FINISHED
- => [backend internal] load build definition from Dockerfile
- => [worker internal] load build definition from Dockerfile
- => [frontend internal] load build definition from Dockerfile
- => => transferring dockerfile: 520B
+[+] Building 34.8s (32/32) FINISHED
 ...
 [+] Running 8/8
  ✔ Network flowforge_network             Created
@@ -133,19 +164,19 @@ The `--build` flag instructs Docker to read `backend/Dockerfile`, `worker/Docker
 
 ---
 
-### Step 4: Confirm All Containers Are Running & Healthy
+### Step 4: Verify Container Health
 
-Verify the status of all five services:
+Confirm that all five containers are running and healthy:
 
 ```bash
-# If you launched Option A:
+# If launched with Option A:
 docker compose -f docker-compose.prod.yml ps
 
-# If you launched Option B:
+# If launched with Option B:
 docker compose -f infrastructure/docker-compose.yml ps
 ```
 
-**Expected Output:**
+**Expected Status Output:**
 ```text
 NAME                 IMAGE                                         SERVICE    STATUS
 flowforge-postgres   postgres:16-alpine                            postgres   Up (healthy)
@@ -155,23 +186,24 @@ flowforge-worker     arpanpramanik2003/flowforge-worker:latest     worker     Up
 flowforge-frontend   arpanpramanik2003/flowforge-frontend:latest   frontend   Up
 ```
 
-All five services should report `Up`. If `flowforge-postgres` and `flowforge-redis` display `(healthy)`, the system is ready to process traffic.
+> [!NOTE]
+> `flowforge-postgres` and `flowforge-redis` will report `Up (healthy)` once their internal healthcheck commands pass. The backend and worker containers will only boot after this state is verified.
 
 ---
 
-## Verify It Worked
+## Verification & Sanity Checks
 
-Verify each core component using your browser or terminal:
+Verify each tier of the system using your browser or terminal:
 
-### 1. Web Dashboard
-Open your browser and navigate to:
+### 1. Administrative Web Dashboard
+Navigate to `http://localhost:3000` in your web browser:
 ```
 http://localhost:3000
 ```
-You should see the FlowForge landing screen with navigation buttons for **Login**, **Register**, and **Workflows**.
+You will see the FlowForge landing portal with access to **Login**, **Register**, and the **Workflows** dashboard.
 
-### 2. Backend API Health Check
-Open your browser or run `curl` against the FastAPI health check endpoint:
+### 2. Backend Health Check
+Query the FastAPI health check endpoint:
 ```bash
 curl http://localhost:8000/health
 ```
@@ -180,21 +212,21 @@ curl http://localhost:8000/health
 {"status": "ok"}
 ```
 
-### 3. Interactive API Documentation (OpenAPI / Swagger)
-FastAPI automatically publishes interactive API documentation:
+### 3. Interactive OpenAPI Documentation (Swagger)
+Open `http://localhost:8000/docs` in your browser:
 ```
 http://localhost:8000/docs
 ```
-You can inspect and execute requests against all auth, workflow, job, and dead-letter endpoints directly from this interface.
+You can review and test endpoints for authentication, workflows, jobs, and dead letters directly from this interactive documentation page.
 
-### 4. Background Worker Connectivity
-View the worker logs to verify that Celery successfully connected to Redis and registered the tiered queues (`high`, `default`, `low`):
+### 4. Background Worker Queue Registration
+Stream the Celery worker logs to ensure it has connected to Redis and registered the priority queues:
 
 ```bash
 docker compose -f infrastructure/docker-compose.yml logs -f worker
 ```
 
-Look for lines indicating active queues and registered tasks:
+**Expected Log Output:**
 ```text
 [tasks]
   . execute_task
@@ -204,44 +236,46 @@ Look for lines indicating active queues and registered tasks:
   . high
   . default
   . low
+
+[2026-09-07 10:00:00,000: INFO/MainProcess] celery@flowforge-worker ready.
 ```
 
 ---
 
 ## Troubleshooting First-Run Issues
 
-### Problem 1: Port Already in Use (`bind: address already in use`)
-- **Cause**: A local instance of PostgreSQL (port `5432`), Redis (port `6379`), an existing Node app (port `3000`), or another web server (port `8000`) is already running natively on your host machine.
-- **Solution**:
-  - Stop your local services:
-    - **Windows**: Stop the Postgres/Redis service via the Services manager (`services.msc`).
+### Problem 1: Port Conflict (`bind: address already in use`)
+- **Cause**: A local instance of PostgreSQL (`5432`), Redis (`6379`), Node.js (`3000`), or an existing HTTP service (`8000`) is running natively on your host machine.
+- **Resolution**:
+  - Stop the conflicting local service:
+    - **Windows**: Stop Postgres / Redis in Services (`services.msc`) or kill processes via `Stop-Process`.
     - **macOS / Linux**: `sudo systemctl stop postgresql redis` or `brew services stop postgresql redis`.
-  - Alternatively, edit the host port mappings in `infrastructure/docker-compose.yml` (e.g. change `"5432:5432"` to `"5433:5432"`).
+  - Alternatively, modify the host port mappings in `infrastructure/docker-compose.yml` (e.g., change `"5432:5432"` to `"5433:5432"`).
 
 ---
 
-### Problem 2: Backend Container Exits Immediately with Migration Failure
-- **Cause**: The backend attempted to run `alembic upgrade head` before PostgreSQL was ready to accept incoming TCP connections.
-- **Solution**:
-  FlowForge's `docker-compose.yml` includes health checks (`condition: service_healthy`) to prevent this. However, on machines under heavy load, the initial database cluster initialization may take longer than the default timeout.
-  1. Inspect the backend logs:
+### Problem 2: Backend Container Exits Immediately with Migration Error
+- **Cause**: The backend attempted to execute Alembic migrations before PostgreSQL finished initializing its database cluster.
+- **Resolution**:
+  FlowForge's `docker-compose.yml` includes `condition: service_healthy` to mitigate this. On machines under heavy I/O load:
+  1. Inspect the backend log output:
      ```bash
      docker compose -f infrastructure/docker-compose.yml logs backend
      ```
-  2. Restart the backend after Postgres completes its initialization:
+  2. Once PostgreSQL reports healthy, restart the backend:
      ```bash
      docker compose -f infrastructure/docker-compose.yml restart backend
      ```
 
 ---
 
-### Problem 3: CORS or Authentication Failures in Browser
-- **Cause**: The frontend cannot communicate with the backend because `NEXT_PUBLIC_API_URL` or `CORS_ORIGINS` is misconfigured.
-- **Solution**:
+### Problem 3: CORS or Network Error in the Web Dashboard
+- **Cause**: `NEXT_PUBLIC_API_URL` or `CORS_ORIGINS` is misconfigured in `infrastructure/.env`.
+- **Resolution**:
   Ensure that in `infrastructure/.env`:
-  - `NEXT_PUBLIC_API_URL=http://localhost:8000` (this is accessed from the user's host browser, **not** from inside the container network).
+  - `NEXT_PUBLIC_API_URL=http://localhost:8000` (this URL is resolved by your client browser on your host machine).
   - `CORS_ORIGINS=http://localhost:3000`.
-  After changing these values, rebuild the frontend container:
+  After adjusting `.env`, rebuild and restart the frontend:
   ```bash
   docker compose -f infrastructure/docker-compose.yml up --build -d frontend
   ```
@@ -250,14 +284,26 @@ Look for lines indicating active queues and registered tasks:
 
 ## Stopping the Platform
 
-When you are finished working:
+When you are finished testing or developing:
 
-- **Stop containers while preserving database and queue data**:
+- **Stop containers and preserve all database records and queue state**:
   ```bash
   docker compose -f infrastructure/docker-compose.yml down
   ```
 
-- **Stop containers and completely wipe all database and queue volumes**:
+- **Stop containers and completely remove all persistent volumes** (clean slate):
   ```bash
   docker compose -f infrastructure/docker-compose.yml down -v
   ```
+
+---
+
+## What You Just Built & Next Steps
+
+You now have a fully operational, multi-container distributed task engine running locally. To continue exploring FlowForge, follow these guides:
+
+1. [First Workflow Walkthrough](first-workflow-walkthrough.md) — Create, trigger, and inspect your first multi-step workflow with exponential backoff and dead-letter recovery.
+2. [Understanding Docker Architecture](understanding-docker.md) — Deep-dive into container networking, Docker Compose configs, and production deployment strategies.
+3. [System Architecture Specification](../01-introduction/architecture-diagram.md) — Detailed specifications of network topologies, protocol boundaries, and state machines.
+4. [Technology Stack Architecture](../01-introduction/tech-stack.md) — In-depth analysis of FastAPI, Celery, Redis, PostgreSQL, and Next.js.
+5. [Managing Dead Letters How-To](../03-how-to-guides/managing-dead-letters.md) — Operational guide for handling unrecoverable pipeline exceptions.
