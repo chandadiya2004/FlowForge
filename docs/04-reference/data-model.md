@@ -1,223 +1,292 @@
-# Data Model
+# Relational Data Model & Database Architecture Specification
 
-FlowForge uses a normalized relational database schema managed via SQLAlchemy ORM and PostgreSQL. This document details the entity-relationship architecture, table definitions, constraints, and valid state transitions.
+FlowForge utilizes a normalized, ACID-compliant relational data model managed through SQLAlchemy 2.0 ORM and PostgreSQL 16. This document provides an exhaustive reference specification of all database entities, relational constraints, cascading rules, JSONB dynamic structures, and state engine lifecycles.
 
 ---
 
-## Entity-Relationship Diagram
+## Entity-Relationship Diagram (ERD)
+
+The diagram below details table structures, primary/foreign keys, cardinality, and relational cascade policies across the FlowForge schema:
 
 ```mermaid
+%%{init: {
+  'theme': 'dark',
+  'themeVariables': {
+    'darkMode': true,
+    'background': '#0b0f19',
+    'primaryColor': '#1e293b',
+    'primaryTextColor': '#f8fafc',
+    'primaryBorderColor': '#38bdf8',
+    'lineColor': '#94a3b8'
+  }
+}}%%
 erDiagram
-    User ||--o{ Workflow : "owns"
-    User ||--o{ Job : "triggers"
-    Workflow ||--o{ Job : "instantiated by"
-    Job ||--|{ Task : "executes"
-    Task ||--o{ DeadLetterTask : "recorded in"
-    Job ||--o{ DeadLetterTask : "context"
-    Workflow ||--o{ DeadLetterTask : "context"
+    User ||--o{ Workflow : "authors (1:N)"
+    User ||--o{ Job : "triggers (1:N)"
+    Workflow ||--o{ Job : "instantiates (1:N)"
+    Job ||--|{ Task : "executes (1:N)"
+    Task ||--o| DeadLetterTask : "quarantines (0:1)"
+    Job ||--o{ DeadLetterTask : "failure context (0:N)"
+    Workflow ||--o{ DeadLetterTask : "pipeline context (0:N)"
 
     User {
-        uuid id PK
-        varchar email UK "Indexed, Not Null"
-        varchar hashed_password "Not Null"
+        uuid id PK "Primary Key"
+        varchar email "Unique, Indexed"
+        varchar hashed_password "Bcrypt Salted Hash"
         user_role role "admin | member | viewer"
         boolean is_active "Default True"
-        timestamp created_at "With Timezone"
+        timestamp created_at "UTC Timestamp"
     }
 
     Workflow {
-        uuid id PK
-        varchar name "Not Null"
-        text description "Nullable"
-        uuid owner_id FK "References User(id), Cascade"
-        json definition "Task step list, Not Null"
-        boolean is_active "Default True"
-        timestamp created_at "With Timezone"
-        timestamp updated_at "With Timezone"
+        uuid id PK "Primary Key"
+        varchar name "Workflow Name"
+        text description "Nullable Summary"
+        uuid owner_id FK "FK -> users.id, Cascade"
+        json definition "Task Step Array"
+        boolean is_active "Soft Delete Flag"
+        timestamp created_at "UTC Timestamp"
+        timestamp updated_at "UTC Timestamp"
     }
 
     Job {
-        uuid id PK
-        uuid workflow_id FK "References Workflow(id), Cascade"
-        uuid triggered_by FK "References User(id), Cascade"
+        uuid id PK "Primary Key"
+        uuid workflow_id FK "FK -> workflows.id, Cascade"
+        uuid triggered_by FK "FK -> users.id, Cascade"
         job_status status "pending | running | completed | failed | cancelled"
-        integer priority "1-10, Default 5"
-        timestamp created_at "With Timezone"
-        timestamp started_at "Nullable"
-        timestamp completed_at "Nullable"
+        integer priority "1-10 Priority Tier"
+        timestamp created_at "UTC Timestamp"
+        timestamp started_at "Nullable UTC"
+        timestamp completed_at "Nullable UTC"
     }
 
     Task {
-        uuid id PK
-        uuid job_id FK "References Job(id), Cascade"
-        varchar name "Not Null"
+        uuid id PK "Primary Key"
+        uuid job_id FK "FK -> jobs.id, Cascade"
+        varchar name "Step Name"
         varchar type "log_message | sleep | http_call"
-        integer sequence "1-indexed order within job"
+        integer sequence "1-indexed Order"
         task_status status "pending | running | completed | failed | retrying"
-        json input_data "Config snapshot, Nullable"
-        json output_data "Result snapshot, Nullable"
-        text error_message "Nullable"
-        integer retry_count "Default 0"
-        integer max_retries "Default 3"
-        timestamp created_at "With Timezone"
-        timestamp started_at "Nullable"
-        timestamp completed_at "Nullable"
+        json input_data "Input Parameter Snapshot"
+        json output_data "Output Result Snapshot"
+        text error_message "Exception Details"
+        integer retry_count "Current Attempts"
+        integer max_retries "Max Retry Budget"
+        timestamp created_at "UTC Timestamp"
+        timestamp started_at "Nullable UTC"
+        timestamp completed_at "Nullable UTC"
     }
 
     DeadLetterTask {
-        uuid id PK
-        uuid task_id FK "References Task(id), Cascade"
-        uuid job_id FK "References Job(id), Cascade"
-        uuid workflow_id FK "References Workflow(id), Cascade"
-        varchar task_type "Not Null"
-        jsonb input_data "Input snapshot, Nullable"
-        text error_message "Exception details, Nullable"
-        integer retry_count "Attempts before exhaustion"
-        timestamp failed_at "With Timezone, Not Null"
-        timestamp requeued_at "Nullable, Set on requeue"
+        uuid id PK "Primary Key"
+        uuid task_id FK "FK -> tasks.id, Cascade, Indexed"
+        uuid job_id FK "FK -> jobs.id, Cascade, Indexed"
+        uuid workflow_id FK "FK -> workflows.id, Cascade, Indexed"
+        varchar task_type "Handler Type"
+        jsonb input_data "Raw Input Snapshot"
+        text error_message "Exception Traceback"
+        integer retry_count "Exhausted Count"
+        timestamp failed_at "UTC Timestamp"
+        timestamp requeued_at "Nullable UTC Requeue Time"
     }
 ```
 
 ---
 
-## Schema Tables Reference
+## Master Table Specifications
 
 ### 1. `users` Table
-Stores authenticated user accounts, encrypted credentials, and system roles.
+Stores authenticated user accounts, password credentials, and system permission roles.
+- **ORM Model**: [backend/app/models/user.py](file:///d:/Edutation%28P%29/FlowForge/backend/app/models/user.py)
 
-| Column | Type | Constraints | Description |
-| :--- | :--- | :--- | :--- |
-| `id` | `UUID` | `PRIMARY KEY`, indexed | Unique user identifier (`uuid.uuid4`). |
-| `email` | `VARCHAR(255)` | `UNIQUE`, `NOT NULL`, indexed | User's email address used for authentication. |
-| `hashed_password` | `VARCHAR(255)` | `NOT NULL` | One-way salted bcrypt password hash. |
-| `role` | `user_role` (Enum) | `NOT NULL`, default: `'member'` | System permission role (`admin`, `member`, `viewer`). |
-| `is_active` | `BOOLEAN` | `NOT NULL`, default: `true` | Account active flag. Deactivated accounts cannot authenticate. |
-| `created_at` | `TIMESTAMP WITH TZ` | `NOT NULL` | UTC timestamp when account was registered. |
+| Column | Type | Nullable | Default | Constraints & Indexes | Description |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **`id`** | `UUID` | No | `uuid.uuid4` | `PRIMARY KEY`, Indexed | Unique identifier for the user account. |
+| **`email`** | `VARCHAR(255)` | No | None | `UNIQUE`, Indexed | Unique user email address used for login. |
+| **`hashed_password`** | `VARCHAR(255)` | No | None | None | Bcrypt salted one-way hash (`passlib`). |
+| **`role`** | `user_role` (Enum) | No | `'member'` | None | Access role (`admin`, `member`, `viewer`). |
+| **`is_active`** | `BOOLEAN` | No | `true` | None | Active state. Inactive accounts are blocked from login. |
+| **`created_at`** | `TIMESTAMP WITH TZ`| No | `NOW()` | None | Timestamp of user registration. |
 
 ---
 
 ### 2. `workflows` Table
-Represents reusable workflow blueprints defining a sequence of execution steps.
+Represents reusable pipeline blueprints defining an ordered list of task steps.
+- **ORM Model**: [backend/app/models/workflow.py](file:///d:/Edutation%28P%29/FlowForge/backend/app/models/workflow.py)
 
-| Column | Type | Constraints | Description |
-| :--- | :--- | :--- | :--- |
-| `id` | `UUID` | `PRIMARY KEY`, indexed | Unique workflow identifier (`uuid.uuid4`). |
-| `name` | `VARCHAR(255)` | `NOT NULL` | Human-readable workflow display name. |
-| `description` | `TEXT` | `NULLABLE` | Detailed summary of the workflow's purpose. |
-| `owner_id` | `UUID` | `NOT NULL`, `FK -> users.id (ON DELETE CASCADE)` | User ID who created and owns this workflow. |
-| `definition` | `JSON` | `NOT NULL` | Ordered JSON array defining steps (`name`, `type`, `config`, `max_retries`). |
-| `is_active` | `BOOLEAN` | `NOT NULL`, default: `true` | Soft-deletion flag. False prevents new jobs from being instantiated. |
-| `created_at` | `TIMESTAMP WITH TZ` | `NOT NULL` | UTC creation timestamp. |
-| `updated_at` | `TIMESTAMP WITH TZ` | `NOT NULL` | UTC timestamp of last metadata/definition modification. |
+| Column | Type | Nullable | Default | Constraints & Indexes | Description |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **`id`** | `UUID` | No | `uuid.uuid4` | `PRIMARY KEY`, Indexed | Unique identifier for the workflow. |
+| **`name`** | `VARCHAR(255)` | No | None | None | Human-readable workflow title. |
+| **`description`**| `TEXT` | Yes | `null` | None | Optional Markdown or plain text description. |
+| **`owner_id`** | `UUID` | No | None | `FK -> users.id (ON DELETE CASCADE)`, Indexed | User ID of the workflow creator. |
+| **`definition`** | `JSON` | No | None | None | Ordered JSON array defining steps and configurations. |
+| **`is_active`** | `BOOLEAN` | No | `true` | None | Soft-deletion flag. False prevents new job creation. |
+| **`created_at`** | `TIMESTAMP WITH TZ`| No | `NOW()` | None | Creation timestamp. |
+| **`updated_at`** | `TIMESTAMP WITH TZ`| No | `NOW()` | On update `NOW()` | Timestamp of last modification. |
+
+#### Schema of `workflows.definition` (JSON Array)
+```json
+[
+  {
+    "name": "Step 1: Ingest Data",
+    "type": "log_message",
+    "config": {
+      "message": "Starting batch import"
+    },
+    "max_retries": 3
+  },
+  {
+    "name": "Step 2: Sync Webhook",
+    "type": "http_call",
+    "config": {
+      "url": "https://api.partner.example.com/sync",
+      "method": "POST",
+      "timeout": 15.0,
+      "headers": { "Authorization": "Bearer token123" }
+    },
+    "max_retries": 2
+  }
+]
+```
 
 ---
 
 ### 3. `jobs` Table
-Represents an instantiated execution run of a workflow.
+Represents an instantiated execution run of a specific workflow.
+- **ORM Model**: [backend/app/models/job.py](file:///d:/Edutation%28P%29/FlowForge/backend/app/models/job.py)
 
-| Column | Type | Constraints | Description |
-| :--- | :--- | :--- | :--- |
-| `id` | `UUID` | `PRIMARY KEY`, indexed | Unique job execution identifier (`uuid.uuid4`). |
-| `workflow_id` | `UUID` | `NOT NULL`, `FK -> workflows.id (ON DELETE CASCADE)` | Target workflow blueprint this job executes. |
-| `triggered_by` | `UUID` | `NOT NULL`, `FK -> users.id (ON DELETE CASCADE)` | User ID who initiated this job run. |
-| `status` | `job_status` (Enum) | `NOT NULL`, indexed, default: `'pending'` | Current execution state of the pipeline. |
-| `priority` | `INTEGER` | `NOT NULL`, default: `5` | Integer priority 1–10 (1–3: High, 4–7: Default, 8–10: Low). |
-| `created_at` | `TIMESTAMP WITH TZ` | `NOT NULL` | UTC timestamp when job record was created. |
-| `started_at` | `TIMESTAMP WITH TZ` | `NULLABLE` | UTC timestamp when Celery worker picked up first task. |
-| `completed_at` | `TIMESTAMP WITH TZ` | `NULLABLE` | UTC timestamp when job finished (`completed`, `failed`, or `cancelled`). |
+| Column | Type | Nullable | Default | Constraints & Indexes | Description |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **`id`** | `UUID` | No | `uuid.uuid4` | `PRIMARY KEY`, Indexed | Unique identifier for this execution run. |
+| **`workflow_id`** | `UUID` | No | None | `FK -> workflows.id (ON DELETE CASCADE)`, Indexed | Target workflow executed by this job. |
+| **`triggered_by`** | `UUID` | No | None | `FK -> users.id (ON DELETE CASCADE)`, Indexed | User ID who initiated the execution. |
+| **`status`** | `job_status` (Enum)| No | `'pending'` | Indexed | Pipeline execution status. |
+| **`priority`** | `INTEGER` | No | `5` | None | Priority integer (1–10). |
+| **`created_at`** | `TIMESTAMP WITH TZ`| No | `NOW()` | None | Timestamp when job row was inserted. |
+| **`started_at`** | `TIMESTAMP WITH TZ`| Yes | `null` | None | Timestamp when worker dequeued Step 1. |
+| **`completed_at`**| `TIMESTAMP WITH TZ`| Yes | `null` | None | Timestamp when job reached a terminal state. |
 
 ---
 
 ### 4. `tasks` Table
-Represents discrete, ordered steps belonging to a parent job.
+Represents discrete, ordered steps belonging to an instantiated parent job.
+- **ORM Model**: [backend/app/models/task.py](file:///d:/Edutation%28P%29/FlowForge/backend/app/models/task.py)
 
-| Column | Type | Constraints | Description |
-| :--- | :--- | :--- | :--- |
-| `id` | `UUID` | `PRIMARY KEY`, indexed | Unique task step identifier (`uuid.uuid4`). |
-| `job_id` | `UUID` | `NOT NULL`, `FK -> jobs.id (ON DELETE CASCADE)` | Parent job identifier. |
-| `name` | `VARCHAR(255)` | `NOT NULL` | Step name copied from workflow definition. |
-| `type` | `VARCHAR(100)` | `NOT NULL` | Handler type (`log_message`, `sleep`, `http_call`). |
-| `sequence` | `INTEGER` | `NOT NULL` | 1-indexed execution order within the parent job. |
-| `status` | `task_status` (Enum) | `NOT NULL`, indexed, default: `'pending'` | Execution state of this step. |
-| `input_data` | `JSON` | `NULLABLE` | Input parameters passed to the step handler. |
-| `output_data` | `JSON` | `NULLABLE` | Serialized dictionary output returned by the handler on success. |
-| `error_message` | `TEXT` | `NULLABLE` | Exception stack or HTTP error message if step failed. |
-| `retry_count` | `INTEGER` | `NOT NULL`, default: `0` | Number of retry attempts made so far. |
-| `max_retries` | `INTEGER` | `NOT NULL`, default: `3` | Maximum retry attempts allowed before permanent failure. |
-| `created_at` | `TIMESTAMP WITH TZ` | `NOT NULL` | UTC timestamp when task was created. |
-| `started_at` | `TIMESTAMP WITH TZ` | `NULLABLE` | UTC timestamp when worker began processing attempt. |
-| `completed_at` | `TIMESTAMP WITH TZ` | `NULLABLE` | UTC timestamp when task succeeded or permanently failed. |
+| Column | Type | Nullable | Default | Constraints & Indexes | Description |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **`id`** | `UUID` | No | `uuid.uuid4` | `PRIMARY KEY`, Indexed | Unique task step identifier. |
+| **`job_id`** | `UUID` | No | None | `FK -> jobs.id (ON DELETE CASCADE)`, Indexed | Parent job identifier. |
+| **`name`** | `VARCHAR(255)` | No | None | None | Step name copied from workflow definition. |
+| **`type`** | `VARCHAR(100)` | No | None | None | Handler type (`log_message`, `sleep`, `http_call`). |
+| **`sequence`** | `INTEGER` | No | None | None | 1-indexed order of execution within the job. |
+| **`status`** | `task_status` (Enum)| No | `'pending'` | Indexed | Current task execution status. |
+| **`input_data`** | `JSON` | Yes | `null` | None | Arguments passed to the handler function. |
+| **`output_data`**| `JSON` | Yes | `null` | None | Serialized output dictionary on success. |
+| **`error_message`**| `TEXT` | Yes | `null` | None | Exception message or HTTP error traceback. |
+| **`retry_count`**| `INTEGER` | No | `0` | None | Number of retries executed so far. |
+| **`max_retries`**| `INTEGER` | No | `3` | None | Maximum allowed retries before permanent failure. |
+| **`created_at`** | `TIMESTAMP WITH TZ`| No | `NOW()` | None | Task creation timestamp. |
+| **`started_at`** | `TIMESTAMP WITH TZ`| Yes | `null` | None | Timestamp when worker began processing. |
+| **`completed_at`**| `TIMESTAMP WITH TZ`| Yes | `null` | None | Timestamp of success or permanent failure. |
 
 ---
 
 ### 5. `dead_letter_tasks` Table
-Captures permanent failure snapshots when tasks exhaust all retry attempts.
+Captures immutable failure snapshots when a task exhausts all allowed retry attempts.
+- **ORM Model**: [backend/app/models/dead_letter.py](file:///d:/Edutation%28P%29/FlowForge/backend/app/models/dead_letter.py)
 
-| Column | Type | Constraints | Description |
-| :--- | :--- | :--- | :--- |
-| `id` | `UUID` | `PRIMARY KEY` | Unique dead-letter record identifier. |
-| `task_id` | `UUID` | `NOT NULL`, `FK -> tasks.id (ON DELETE CASCADE)` | Identifier of the permanently failed task. |
-| `job_id` | `UUID` | `NOT NULL`, `FK -> jobs.id (ON DELETE CASCADE)` | Identifier of the parent job. |
-| `workflow_id` | `UUID` | `NOT NULL`, `FK -> workflows.id (ON DELETE CASCADE)` | Identifier of the workflow pipeline. |
-| `task_type` | `VARCHAR(100)` | `NOT NULL` | Type string of the failed task handler. |
-| `input_data` | `JSONB` / `JSON` | `NULLABLE` | Exact snapshot of input parameters provided to the task. |
-| `error_message` | `TEXT` | `NULLABLE` | Raw error message or exception that caused exhaustion. |
-| `retry_count` | `INTEGER` | `NOT NULL`, default: `0` | Number of retries performed prior to dead-lettering. |
-| `failed_at` | `TIMESTAMP WITH TZ` | `NOT NULL` | UTC timestamp when task was declared permanently failed. |
-| `requeued_at` | `TIMESTAMP WITH TZ` | `NULLABLE`, default: `null` | UTC timestamp when an administrator requeued the task. |
-
----
-
-## State Transitions & Enums
-
-### 1. `UserRole` (`admin`, `member`, `viewer`)
-- **`admin`**: Full system permissions across all accounts, workflows, jobs, and dead-letter tables.
-- **`member`**: Standard user. Can author workflows, trigger jobs, and inspect runs that they own.
-- **`viewer`**: Read-only user. Can view workflows and execution runs they own, but cannot create or trigger.
+| Column | Type | Nullable | Default | Constraints & Indexes | Description |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **`id`** | `UUID` | No | `uuid.uuid4` | `PRIMARY KEY` | Unique dead-letter record identifier. |
+| **`task_id`** | `UUID` | No | None | `FK -> tasks.id (ON DELETE CASCADE)`, Indexed | Identifier of the permanently failed task. |
+| **`job_id`** | `UUID` | No | None | `FK -> jobs.id (ON DELETE CASCADE)`, Indexed | Identifier of the parent job. |
+| **`workflow_id`**| `UUID` | No | None | `FK -> workflows.id (ON DELETE CASCADE)`, Indexed | Identifier of the originating workflow. |
+| **`task_type`** | `VARCHAR(100)` | No | None | None | Type of task handler that failed. |
+| **`input_data`** | `JSONB` | Yes | `null` | None | Immutable snapshot of task input parameters. |
+| **`error_message`**| `TEXT` | Yes | `null` | None | Raw error string or exception traceback. |
+| **`retry_count`**| `INTEGER` | No | `0` | None | Retries attempted before abandonment. |
+| **`failed_at`** | `TIMESTAMP WITH TZ`| No | `NOW()` | None | Timestamp when task entered DLQ quarantine. |
+| **`requeued_at`**| `TIMESTAMP WITH TZ`| Yes | `null` | None | Timestamp when admin triggered replay. |
 
 ---
 
-### 2. `JobStatus` Lifecycle & Transitions
+## State Transition Lifecycles & Enums
+
+### 1. `JobStatus` State Machine
 
 ```mermaid
+%%{init: {
+  'theme': 'dark',
+  'themeVariables': {
+    'darkMode': true,
+    'background': '#0b0f19',
+    'primaryColor': '#1e293b',
+    'primaryTextColor': '#f8fafc',
+    'primaryBorderColor': '#38bdf8',
+    'lineColor': '#94a3b8'
+  }
+}}%%
 stateDiagram-v2
-    [*] --> pending : Job created from workflow
-    pending --> running : First task dequeued by Celery worker
-    pending --> cancelled : Cancelled before dispatch
-    running --> completed : All sequential tasks completed successfully
-    running --> failed : A task exhausted max retries
-    running --> cancelled : Manually aborted during execution
-    failed --> running : Operator requeues dead-letter task
+    [*] --> pending : POST /workflows/{id}/jobs
+    pending --> running : Worker dequeues Step 1
+    pending --> cancelled : User cancels job before run
+    running --> completed : All sequential tasks succeed
+    running --> failed : A task exhausts max retries
+    running --> cancelled : User halts active job
+    failed --> running : Operator calls /dead-letters/{id}/requeue
     completed --> [*]
     failed --> [*]
     cancelled --> [*]
 ```
 
-- **`pending`**: Initial state upon creation via `POST /workflows/{id}/jobs`.
-- **`running`**: Worker has begun processing steps.
-- **`completed`**: Terminal state. Every step in the sequence completed successfully.
-- **`failed`**: Terminal state. A step failed and exhausted all configured retries. (Can be reopened to `running` via `/dead-letters/{id}/requeue`).
-- **`cancelled`**: Terminal state. Manually halted.
-
----
-
-### 3. `TaskStatus` Lifecycle & Transitions
+### 2. `TaskStatus` State Machine
 
 ```mermaid
+%%{init: {
+  'theme': 'dark',
+  'themeVariables': {
+    'darkMode': true,
+    'background': '#0b0f19',
+    'primaryColor': '#1e293b',
+    'primaryTextColor': '#f8fafc',
+    'primaryBorderColor': '#38bdf8',
+    'lineColor': '#94a3b8'
+  }
+}}%%
 stateDiagram-v2
     [*] --> pending : Unpacked from workflow definition
-    pending --> running : Worker begins executing handler
+    pending --> running : Worker thread begins execution
     running --> completed : Handler returns success output
     running --> retrying : Handler raises error (retry_count < max_retries)
-    retrying --> running : Countdown delay expires, worker retries
+    retrying --> running : Countdown delay fires in Celery
     running --> failed : Handler raises error (retry_count >= max_retries)
-    failed --> pending : Administrator requeues task
+    failed --> pending : Admin requeues via /dead-letters/{id}/requeue
     completed --> [*]
     failed --> [*]
 ```
 
-- **`pending`**: Waiting in queue to be picked up by Celery.
-- **`running`**: Task handler function is actively executing.
-- **`retrying`**: Task failed temporarily; countdown delay scheduled in Celery with exponential backoff.
-- **`completed`**: Handler returned valid output data without errors.
-- **`failed`**: Retries exhausted; step failed permanently and created a `DeadLetterTask` record.
+---
+
+## Relational Cascading Rules & Data Integrity
+
+FlowForge enforces strict referential integrity at the database engine level via PostgreSQL foreign keys:
+
+1. **User Deletion**:
+   - `users.id` → `workflows.owner_id` (`ON DELETE CASCADE`): Deleting a user deletes all their authored workflows.
+   - `users.id` → `jobs.triggered_by` (`ON DELETE CASCADE`): Deleting a user purges all job executions they initiated.
+2. **Workflow Deletion**:
+   - `workflows.id` → `jobs.workflow_id` (`ON DELETE CASCADE`): Deleting a workflow automatically purges all child jobs and their sequential tasks.
+3. **Job Deletion**:
+   - `jobs.id` → `tasks.job_id` (`ON DELETE CASCADE`): Purging a job record immediately cascades to remove all associated task rows.
+4. **Dead-Letter Isolation**:
+   - `dead_letter_tasks` maintains foreign keys targeting `task_id`, `job_id`, and `workflow_id` with `ON DELETE CASCADE`, ensuring no orphaned dead-letter records remain if an entire workflow or job is purged.
+
+---
+
+## Related Documentation & References
+
+- [REST API Reference](api-reference.md) — Endpoint request and response schemas mapping to these database entities.
+- [Architecture Diagram & Topologies](../01-introduction/architecture-diagram.md) — System data flow, network boundaries, and state progression.
+- [Managing Dead Letters Guide](../03-how-to-guides/managing-dead-letters.md) — Operator instructions for diagnosing and re-driving quarantined tasks.
+- [Retry & Dead-Letter Strategy](../05-explanation/retry-and-dead-letter-strategy.md) — Architectural rationale for dead-letter database isolation.
