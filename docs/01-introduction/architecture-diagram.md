@@ -15,14 +15,12 @@ flowchart TB
     classDef broker fill:#fee2e2,stroke:#dc2626,stroke-width:2px;
     classDef worker fill:#dcfce7,stroke:#16a34a,stroke-width:2px;
     classDef storage fill:#ede9fe,stroke:#7c3aed,stroke-width:2px;
-    classDef network fill:#f8fafc,stroke:#94a3b8,stroke-width:2px,stroke-dasharray: 5 5;
 
     subgraph UserSpace["External / User Space"]
         Browser["Web Browser / API Consumer"]:::client
     end
 
-    subgraph DockerNetwork["Docker Bridge Network (flowforge_network)"]:::network
-        
+    subgraph DockerNetwork["Docker Bridge Network (flowforge_network)"]
         subgraph FrontendContainer["flowforge-frontend (Port 3000)"]
             NextApp["Next.js 16 App Router\n(React 19, TypeScript, Tailwind CSS)"]:::client
             APIClient["Frontend API Client\n(lib/api.ts with Bearer Token)"]:::client
@@ -37,7 +35,7 @@ flowchart TB
 
         subgraph DataTier["State & Messaging Tier"]
             PostgresDB[("PostgreSQL 16 (Port 5432)\nSystem of Record\nVolume: postgres_data")]:::storage
-            RedisBroker[("Redis 7 (Port 6379)\nCelery Broker & Result Store\nQueues: high | default | low\nVolume: redis_data")]:::broker
+            RedisBroker[("Redis 7 (Port 6379)\nCelery Broker & Result Store\nQueues: high, default, low\nVolume: redis_data")]:::broker
         end
 
         subgraph WorkerContainer["flowforge-worker (Background Plane)"]
@@ -74,6 +72,8 @@ flowchart TB
     CeleryWorker -->|"TCP :5432 (SQLAlchemy ORM)\nUpdate Task/Job State & Write DLQ"| PostgresDB
     Orchestrator -->|"TCP :6379 (apply_async)\nRe-queue Next Step or Countdown Retry"| RedisBroker
     HandlerRegistry -->|"Outbound HTTP / HTTPS :443\n(httpx with timeouts)"| RemoteEndpoints
+
+    style DockerNetwork fill:#f8fafc,stroke:#94a3b8,stroke-width:2px,stroke-dasharray: 5 5
 ```
 
 ---
@@ -114,90 +114,88 @@ The following sequence diagram details the complete lifecycle of a multi-step jo
 sequenceDiagram
     autonumber
     actor User
-    participant Frontend as Next.js Dashboard (:3000)
-    participant API as FastAPI Backend (:8000)
-    participant DB as PostgreSQL 16 (:5432)
-    participant Redis as Redis 7 Broker (:6379)
+    participant Frontend as Next.js Dashboard
+    participant API as FastAPI Backend
+    participant DB as PostgreSQL
+    participant Redis as Redis Broker
     participant Worker as Celery Worker
 
     User->>Frontend: Clicks "Trigger Job" on Workflow Page
-    Frontend->>API: POST /jobs/{id}/trigger (Header: Bearer JWT)
+    Frontend->>API: POST /jobs/{id}/trigger (Bearer JWT)
     
     rect rgb(240, 249, 255)
-        Note over API,DB: Step 1: Authentication, Authorization & State Validation
-        API->>DB: Verify JWT token & check user role (admin | member | viewer)
-        API->>DB: Query Job by ID (SELECT * FROM jobs WHERE id = :id)
-        alt Job is not "pending" (e.g. running, completed, cancelled)
-            API-->>Frontend: 409 Conflict ("Job is already running or completed")
+        Note over API,DB: Step 1: Authentication, Authorization and State Validation
+        API->>DB: Verify JWT token and check user role
+        API->>DB: Query Job by ID
+        alt Job is not pending
+            API-->>Frontend: 409 Conflict (Job already running or completed)
         end
-        API->>DB: Query first sequential task (sequence = 1)
+        API->>DB: Query first sequential task (sequence 1)
     end
 
     rect rgb(254, 243, 199)
-        Note over API,Redis: Step 2: Priority Partitioning & Asynchronous Dispatch
-        API->>API: get_queue_for_priority(job.priority)<br>1-3: "high" | 4-7: "default" | 8-10: "low"
+        Note over API,Redis: Step 2: Priority Partitioning and Asynchronous Dispatch
+        API->>API: Route priority (1-3: high, 4-7: default, 8-10: low)
         API->>Redis: dispatch_task("execute_task", args=[task_1_id], queue=queue)
-        API-->>Frontend: 200 OK (Job status: "pending")
+        API-->>Frontend: 200 OK (Job status: pending)
     end
 
     rect rgb(240, 253, 244)
         Note over Frontend,API: Step 3: Frontend Polling Loop Initiated
-        Frontend->>Frontend: Sets setInterval(fetchJob, 2000)
-        Frontend-->>User: UI updates to show Job status: "pending"
+        Frontend->>Frontend: Set interval polling (every 2 seconds)
+        Frontend-->>User: UI updates to show Job status: pending
     end
 
     rect rgb(245, 243, 255)
-        Note over Redis,Worker: Step 4: Worker Consumption & State Initialization
-        Worker->>Redis: BRPOP from assigned priority queues
+        Note over Redis,Worker: Step 4: Worker Consumption and State Initialization
+        Worker->>Redis: Pull task from assigned priority queue
         Redis-->>Worker: Deliver task message (task_1_id)
-        Worker->>DB: BEGIN TRANSACTION
-        Worker->>DB: UPDATE jobs SET status = 'running', started_at = NOW() (if pending)
-        Worker->>DB: UPDATE tasks SET status = 'running', started_at = NOW() WHERE id = :task_1_id
-        Worker->>DB: COMMIT TRANSACTION
+        Worker->>DB: UPDATE jobs SET status = 'running'
+        Worker->>DB: UPDATE tasks SET status = 'running'
     end
 
     rect rgb(254, 242, 242)
-        Note over Worker: Step 5: Handler Lookup & Execution
-        Worker->>Worker: Lookup handler in TASK_REGISTRY[task.type]<br>(log_message | sleep | http_call)
-        Worker->>Worker: Execute handler with task.input_data
+        Note over Worker: Step 5: Handler Lookup and Execution
+        Worker->>Worker: Lookup task handler (log_message, sleep, or http_call)
+        Worker->>Worker: Execute handler with input_data
     end
 
     alt Execution Path A: Handler Succeeds
-        Worker->>DB: UPDATE tasks SET status = 'completed', output_data = {...}, completed_at = NOW()
-        Worker->>Worker: handle_task_completion(task_1_id, db)
-        Worker->>DB: SELECT * FROM tasks WHERE job_id = :job_id AND sequence = 2
-        alt Subsequent Task Exists (Step 2)
-            Worker->>Redis: apply_async(args=[task_2_id], queue=queue)
-            Note over Redis,Worker: Next task enters queue; process repeats for sequence 2
+        Worker->>DB: UPDATE tasks SET status = 'completed'
+        Worker->>Worker: Orchestrator checks next sequential step
+        Worker->>DB: Query next task where sequence = 2
+        alt Subsequent Task Exists
+            Worker->>Redis: apply_async next task into queue
+            Note over Redis,Worker: Next task enters queue and process repeats for sequence 2
         else All Sequential Tasks Complete
-            Worker->>DB: UPDATE jobs SET status = 'completed', completed_at = NOW()
+            Worker->>DB: UPDATE jobs SET status = 'completed'
         end
 
-    else Execution Path B: Handler Raises Exception & Retries Remain
-        Worker->>DB: UPDATE tasks SET error_message = :err
-        Worker->>Worker: Calculate backoff: min(base * (2 ^ attempt), max_delay)
+    else Execution Path B: Handler Raises Exception and Retries Remain
+        Worker->>DB: UPDATE tasks SET error_message
+        Worker->>Worker: Calculate exponential backoff delay
         Worker->>DB: UPDATE tasks SET status = 'retrying', retry_count = retry_count + 1
-        Worker->>Redis: apply_async(countdown=backoff_delay, queue=queue)
-        Note over Redis: Task sleeps in Redis ETA schedule; worker is free for other jobs
+        Worker->>Redis: apply_async with countdown delay
+        Note over Redis: Task waits in Redis countdown schedule and worker is freed
 
-    else Execution Path C: Handler Raises Exception & Retries Exhausted
-        Worker->>DB: UPDATE tasks SET status = 'failed', completed_at = NOW()
-        Worker->>DB: INSERT INTO dead_letter_tasks (task_id, job_id, workflow_id, error_message, ...)
-        Worker->>DB: UPDATE jobs SET status = 'failed', completed_at = NOW()
-        Note over DB: Entire downstream pipeline halted; poison pill safely quarantined
+    else Execution Path C: Handler Raises Exception and Retries Exhausted
+        Worker->>DB: UPDATE tasks SET status = 'failed'
+        Worker->>DB: INSERT INTO dead_letter_tasks
+        Worker->>DB: UPDATE jobs SET status = 'failed'
+        Note over DB: Downstream pipeline halted and task quarantined to DLQ
     end
 
     rect rgb(240, 249, 255)
         Note over Frontend,API: Step 6: Frontend Polling Detects Completion
         loop Every 2 Seconds
             Frontend->>API: GET /jobs/{id}
-            API->>DB: SELECT * FROM jobs WHERE id = :id (with tasks)
-            API-->>Frontend: 200 OK (Job status: "completed" | "failed")
-            Frontend->>Frontend: Update UI badges, display output JSON or error stack
+            API->>DB: Query job and task records
+            API-->>Frontend: 200 OK (Job status: completed or failed)
+            Frontend->>Frontend: Update UI status badges and outputs
         end
-        Frontend->>Frontend: clearInterval() — Polling terminated on terminal state
+        Frontend->>Frontend: Terminate polling interval on terminal state
     end
-```
+`````
 
 ---
 
