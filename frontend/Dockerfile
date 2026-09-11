@@ -12,6 +12,7 @@ WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+RUN mkdir -p public
 
 # Pass browser-facing API URL at build time
 ARG NEXT_PUBLIC_API_URL=http://localhost:8000
