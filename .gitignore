@@ -13,6 +13,8 @@ node_modules/
 *.db
 *.sqlite3
 .agents/
+frontend/AGENTS.md
+frontend/CLAUDE.md
 
 # Python
 __pycache__/

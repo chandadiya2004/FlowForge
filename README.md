@@ -257,7 +257,7 @@ Current milestone status from the **[Project Roadmap](docs/06-project/roadmap.md
 
 ## 🤝 Contributing
 
-Contributions, bug reports, and suggestions are welcome! Please review our **[Contribution Guidelines](CONTRIBUTING.md)** and the **[Git & GitHub Workflow Guide](docs/03-how-to-guides/git-and-github-workflow.md)** before submitting a Pull Request.
+Contributions, bug reports, and suggestions are welcome! Please review our **[Git & GitHub Workflow Guide](docs/03-how-to-guides/git-and-github-workflow.md)** before submitting a Pull Request.
 
 ---
 
